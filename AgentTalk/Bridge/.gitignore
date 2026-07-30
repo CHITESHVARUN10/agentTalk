@@ -1,0 +1,5 @@
+# Generated swift-bridge files — regenerated on each cargo build
+SwiftBridgeCore.swift
+SwiftBridgeCore.h
+agent-talk-core.swift
+agent-talk-core.h

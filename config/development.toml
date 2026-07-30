@@ -1,0 +1,12 @@
+# Development overrides — applied on top of default.toml when AGENTTALK_ENV=development
+
+[logging]
+level = "debug"
+format = "pretty"
+
+[features]
+vad_enabled = false
+coreml_enabled = false
+
+[paste]
+auto_paste = false

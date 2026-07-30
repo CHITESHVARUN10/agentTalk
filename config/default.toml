@@ -1,0 +1,55 @@
+[app]
+name = "AgentTalk"
+version = "0.1.0"
+
+[model]
+# Path to whisper model files (supports ~ for home directory)
+directory = "~/Library/Application Support/AgentTalk/models"
+# Model filename to load
+filename = "ggml-large-v3-turbo.bin"
+# Automatically download model on first launch if not present
+auto_download = true
+# Unload model from memory after this many seconds of inactivity (0 = never)
+idle_unload_seconds = 300
+
+[audio]
+# Whisper requires 16kHz mono f32 input
+sample_rate = 16000
+channels = 1
+# Soft cap: warn user before reaching this limit
+max_duration_seconds = 90
+
+[inference]
+# Number of CPU threads for non-GPU operations
+n_threads = 4
+# Language code passed to Whisper
+language = "en"
+# Sampling strategy: "greedy" or "beam_search"
+sampling = "greedy"
+
+[hotkey]
+# Hotkey capture mechanism: "cgeventtap" or "carbon"
+mechanism = "cgeventtap"
+# Key combination (modifiers concatenated with +, key is a single char)
+modifiers = ["command", "shift"]
+key = "d"
+
+[paste]
+# Auto-paste transcript into frontmost app after transcription
+auto_paste = false
+# Restore previous clipboard contents after paste
+restore_clipboard = true
+
+[logging]
+# Log level: trace, debug, info, warn, error
+level = "info"
+# Log output file path
+file = "~/Library/Application Support/AgentTalk/logs/agenttalk.log"
+# Output format: "compact", "json", "pretty"
+format = "json"
+
+[features]
+# Voice Activity Detection — auto-stop recording when user stops speaking
+vad_enabled = false
+# CoreML encoder offload — additional speed on Apple Silicon
+coreml_enabled = false

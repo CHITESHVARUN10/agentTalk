@@ -1,0 +1,12 @@
+# Release overrides — applied on top of default.toml when AGENTTALK_ENV=release
+
+[logging]
+level = "warn"
+format = "json"
+
+[paste]
+auto_paste = true
+
+[features]
+vad_enabled = false
+coreml_enabled = false
