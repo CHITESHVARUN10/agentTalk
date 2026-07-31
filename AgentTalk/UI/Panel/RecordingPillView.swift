@@ -89,6 +89,8 @@ private struct RecordingStatusDot: View {
 
 /// Transcript panel — same glass language, expands above the pill position.
 /// Exactly two actions: Copy and Close.
+/// Text area scrolls when long; buttons stay pinned at the bottom.
+/// Total height is capped so the window never grows past the screen.
 struct TranscriptOverlayView: View {
     let transcript: String
     var copied: Bool = false
@@ -99,12 +101,20 @@ struct TranscriptOverlayView: View {
     @State private var showCheck = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(transcript)
-                .font(.system(size: 14, weight: .regular, design: .default))
-                .foregroundStyle(.white.opacity(0.92))
-                .lineSpacing(4)
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 12) {
+            // Scrollable text — capped height, grows only inside this box
+            ScrollView {
+                Text(transcript)
+                    .font(.system(size: 14, weight: .regular, design: .default))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 96)
+
+            Divider()
+                .overlay(.white.opacity(0.1))
 
             HStack(spacing: 8) {
                 // Copy — primary
@@ -149,7 +159,7 @@ struct TranscriptOverlayView: View {
             }
         }
         .padding(18)
-        .frame(width: 300)
+        .frame(width: 300, height: 170)
         .background {
             RoundedRectangle(cornerRadius: 18)
                 .fill(.ultraThinMaterial)

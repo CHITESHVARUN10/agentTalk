@@ -183,7 +183,7 @@ final class AppModel {
         case .Recording, .Processing:
             return CGSize(width: 240, height: 44)
         case .TranscriptReady:
-            return CGSize(width: 300, height: 140)
+            return CGSize(width: 300, height: 170)
         case .Error, .Preparing:
             return CGSize(width: 300, height: 120)
         default:
