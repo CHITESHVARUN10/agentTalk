@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>DictationAI - The Classic HUD</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        
+        /* Glassmorphic "System Ultra Thin Material" as per Style Guidance */
+        .glass-panel {
+            background: rgba(27, 27, 28, 0.4);
+            backdrop-filter: blur(24px) saturate(180%);
+            -webkit-backdrop-filter: blur(24px) saturate(180%);
+            border: 0.5px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .hud-shadow {
+            box-shadow: 0px 20px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        .recording-dot {
+            box-shadow: 0 0 8px rgba(186, 26, 26, 0.6);
+            animation: pulse-red 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse-red {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(0.9); }
+        }
+
+        /* Ambient desktop background simulation */
+        .desktop-canvas {
+            background: radial-gradient(circle at top right, #1b1b1c, #001a41);
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .floating-action-button {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .floating-action-button:hover {
+            transform: translateY(-2px);
+            background: rgba(255, 255, 255, 0.1);
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-dim": "#dcd9d9",
+                        "secondary-fixed": "#e3e2e7",
+                        "primary-fixed-dim": "#adc6ff",
+                        "tertiary-container": "#c64f00",
+                        "secondary-fixed-dim": "#c6c6cb",
+                        "secondary-container": "#e0dfe4",
+                        "on-primary-fixed": "#001a41",
+                        "on-background": "#1b1b1c",
+                        "on-surface-variant": "#414755",
+                        "tertiary-fixed-dim": "#ffb595",
+                        "on-primary-fixed-variant": "#004493",
+                        "on-tertiary": "#ffffff",
+                        "on-secondary-fixed-variant": "#46464b",
+                        "inverse-surface": "#303030",
+                        "error-container": "#ffdad6",
+                        "surface-tint": "#005bc1",
+                        "on-secondary": "#ffffff",
+                        "on-tertiary-fixed": "#351000",
+                        "on-secondary-container": "#626267",
+                        "surface-container-high": "#eae7e7",
+                        "on-secondary-fixed": "#1a1b1f",
+                        "outline": "#717786",
+                        "inverse-primary": "#adc6ff",
+                        "surface-variant": "#e5e2e1",
+                        "on-error-container": "#93000a",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-container-low": "#f6f3f2",
+                        "on-error": "#ffffff",
+                        "secondary": "#5d5e63",
+                        "primary-fixed": "#d8e2ff",
+                        "on-tertiary-container": "#fffbff",
+                        "primary-container": "#0070eb",
+                        "on-surface": "#1b1b1c",
+                        "primary": "#0058bc",
+                        "on-tertiary-fixed-variant": "#7c2e00",
+                        "surface-container": "#f0eded",
+                        "on-primary-container": "#fefcff",
+                        "outline-variant": "#c1c6d7",
+                        "surface": "#fcf9f8",
+                        "inverse-on-surface": "#f3f0ef",
+                        "background": "#fcf9f8",
+                        "on-primary": "#ffffff",
+                        "surface-bright": "#fcf9f8",
+                        "error": "#ba1a1a",
+                        "tertiary-fixed": "#ffdbcc",
+                        "tertiary": "#9e3d00",
+                        "surface-container-highest": "#e5e2e1"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter-list": "4px",
+                        "stack-gap": "8px",
+                        "margin-main": "12px",
+                        "padding-panel": "16px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "mono-sm": ["JetBrains Mono"],
+                        "display-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "label-md": ["11px", {"lineHeight": "14px", "letterSpacing": "0.02em", "fontWeight": "500"}],
+                        "body-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0em", "fontWeight": "400"}],
+                        "mono-sm": ["12px", {"lineHeight": "16px", "fontWeight": "400"}],
+                        "display-sm": ["20px", {"lineHeight": "24px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                        "body-md": ["13px", {"lineHeight": "18px", "letterSpacing": "0em", "fontWeight": "400"}],
+                        "headline-md": ["16px", {"lineHeight": "20px", "letterSpacing": "-0.01em", "fontWeight": "600"}]
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-background dark:bg-on-background text-on-surface dark:text-inverse-on-surface antialiased overflow-hidden selection:bg-primary/30">
+<!-- Desktop Canvas Simulation -->
+<div class="desktop-canvas flex items-center justify-center">
+<!-- Subtle Top App Bar per Shared Components JSON -->
+<header class="fixed top-0 left-0 right-0 h-10 flex justify-between items-center px-padding-panel bg-surface/80 dark:bg-inverse-surface/80 backdrop-blur-xl border-b border-outline-variant/10 shadow-2xl z-50">
+<div class="flex items-center gap-4">
+<span class="font-headline-md text-headline-md text-on-surface dark:text-inverse-on-surface">DictationAI</span>
+<div class="hidden md:flex gap-4">
+<span class="font-label-md text-label-md text-primary font-bold cursor-default">Dictate</span>
+<span class="font-label-md text-label-md text-on-surface-variant hover:bg-surface-variant/50 transition-colors cursor-default px-2 py-0.5 rounded">History</span>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-surface-variant hover:bg-surface-variant/50 transition-colors p-1 rounded cursor-pointer" data-icon="settings">settings</span>
+<span class="material-symbols-outlined text-on-surface-variant hover:bg-surface-variant/50 transition-colors p-1 rounded cursor-pointer" data-icon="history">history</span>
+<span class="material-symbols-outlined text-on-surface-variant hover:bg-surface-variant/50 transition-colors p-1 rounded cursor-pointer" data-icon="info">info</span>
+</div>
+</header>
+<!-- Main Workspace (Empty for HUD focus) -->
+<div class="relative w-full h-full flex items-center justify-center p-margin-main">
+<!-- Simulated background art for context -->
+<div class="absolute inset-0 z-0 opacity-20 dark:opacity-40 pointer-events-none">
+<div class="w-full h-full bg-cover bg-center" data-alt="A cinematic, low-angle shot of a minimalist workstation with high-end tech. The environment is bathed in a dark mode aesthetic with deep shadows and cool blue accent lights. A soft, hazy atmospheric glow fills the room, emphasizing a high-performance corporate atmosphere. Ultra-sharp textures and pristine surfaces suggest a high-end native macOS utility environment." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuD0SQyIKUXNGtsx7rIR0mt8yl7-ElgEoKt5MFDWYRg3Hivk1r4CGLb-KTxCngUXVk2__OjhCI0IBVWUmEYVnKEgSFwDlKXHMeRYSunaU5ycEhydgXBUGDwycN37-ktNxLksY88KWPVJSgMCszZ8lty1i_sKzFrFky-9eNms6FQyPTsF2OjXID_yhoaMn59rQCkmxzkjXkFXrZAWODStHJkoqZ5I3i93kgmagSvDLgCRMSgM572OSlSA')"></div>
+</div>
+<!-- Focus Content -->
+<div class="z-10 text-center max-w-lg">
+<h2 class="font-display-sm text-display-sm mb-2 opacity-60">Ready to transcribe</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Press ⌘+Shift+D to start dictation</p>
+</div>
+</div>
+<!-- THE HUD: 240x48px Sleek Pill -->
+<div class="fixed bottom-12 left-1/2 -translate-x-1/2 z-[100]">
+<div class="w-[240px] h-[48px] rounded-full glass-panel hud-shadow flex items-center px-4 overflow-hidden relative">
+<!-- Status Indicator (Glowing Red Dot) -->
+<div class="flex-shrink-0 mr-4">
+<div class="w-2 h-2 rounded-full bg-error recording-dot"></div>
+</div>
+<!-- Minimal Organic Waveform Container -->
+<div class="flex-grow h-full flex items-center justify-center opacity-80 mix-blend-screen">
+
+</div>
+<!-- Subtle Interaction Area (Hidden Click/Tap layer) -->
+<button class="absolute inset-0 w-full h-full cursor-pointer active:scale-95 transition-transform duration-200" title="Stop Recording"></button>
+</div>
+<!-- Contextual Helper (Appears on hover) -->
+<div class="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+<span class="bg-inverse-surface/90 text-inverse-on-surface text-[10px] px-2 py-1 rounded-md font-mono-sm">DICTATING...</span>
+</div>
+</div>
+<!-- Floating Utilities (SideNav Logic Filtered) -->
+<aside class="fixed left-margin-main top-1/2 -translate-y-1/2 hidden md:flex flex-col p-margin-main space-y-stack-gap h-auto w-12 glass-panel rounded-2xl border border-outline-variant/10 shadow-lg z-40">
+<button class="w-8 h-8 flex items-center justify-center bg-primary/10 text-primary rounded-lg font-semibold transition-all active:scale-95" title="Dictate">
+<span class="material-symbols-outlined text-[20px]" data-icon="mic">mic</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center text-on-surface-variant hover:bg-surface-variant/30 rounded-lg transition-all active:scale-95" title="Recent">
+<span class="material-symbols-outlined text-[20px]" data-icon="description">description</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center text-on-surface-variant hover:bg-surface-variant/30 rounded-lg transition-all active:scale-95" title="Shortcuts">
+<span class="material-symbols-outlined text-[20px]" data-icon="keyboard">keyboard</span>
+</button>
+<div class="h-[0.5px] bg-outline-variant/20 mx-1"></div>
+<button class="w-8 h-8 flex items-center justify-center text-on-surface-variant hover:bg-surface-variant/30 rounded-lg transition-all active:scale-95" title="Settings">
+<span class="material-symbols-outlined text-[20px]" data-icon="settings">settings</span>
+</button>
+</aside>
+<!-- Footer per Shared Components JSON -->
+<footer class="fixed bottom-0 w-full h-8 flex justify-center items-center gap-4 py-2 bg-transparent border-t border-outline-variant/10 z-40 pointer-events-none">
+<p class="font-body-sm text-body-sm text-secondary opacity-60">© 2024 AI Dictation. macOS Native Utility.</p>
+<div class="flex gap-3 pointer-events-auto">
+<a class="font-body-sm text-body-sm text-secondary hover:text-on-surface transition-colors" href="#">Support</a>
+<a class="font-body-sm text-body-sm text-secondary hover:text-on-surface transition-colors" href="#">Privacy</a>
+</div>
+</footer>
+</div>
+<script>
+        // Simple Micro-interaction script
+        document.addEventListener('keydown', (e) => {
+            // Trigger visual feedback for ⌘+Shift+D (Mock)
+            if (e.metaKey && e.shiftKey && e.key === 'D') {
+                const hud = document.querySelector('.hud-panel');
+                if (hud) {
+                    hud.classList.add('scale-105');
+                    setTimeout(() => hud.classList.remove('scale-105'), 200);
+                }
+            }
+        });
+    </script>
+</body></html>

@@ -1,18 +1,40 @@
-/// Swift-side implementations of functions that Rust calls back into.
-/// These are declared as `extern "Swift"` in the Rust FFI module.
-/// Each is annotated with @_cdecl and must match the C calling convention.
+import AppKit
+import SwiftUI
 
-func on_state_changed(state: AppState) {
-    print("[AgentTalk] State changed: \(state)")
-    // TODO: push to SwiftUI @State / @Observable model
+func on_state_changed(phase: AppPhase, model: ModelPhase) {
+    DispatchQueue.main.async {
+        let app = AppModel.shared
+        app.phase = phase
+        app.modelPhase = model
+
+        if phase == .TranscriptReady {
+            app.transcript = get_transcript().toString()
+        }
+    }
 }
 
 func on_transcript_ready(text: RustString) {
-    print("[AgentTalk] Transcript ready: \(text.toString())")
-    // TODO: display in floating panel
+    let t = text.toString()
+    DispatchQueue.main.async {
+        AppModel.shared.transcript = t
+        AppModel.shared.phase = .TranscriptReady
+    }
 }
 
 func on_error(message: RustString) {
-    print("[AgentTalk] Error: \(message.toString())")
-    // TODO: show error in UI
+    let msg = message.toString()
+    print("[AgentTalk] Error: \(msg)")
+    DispatchQueue.main.async {
+        AppModel.shared.errorMessage = msg
+        AppModel.shared.phase = .Error
+    }
+}
+
+func on_download_progress(progress: Float, speed: RustString, remaining: RustString) {
+    DispatchQueue.main.async {
+        let app = AppModel.shared
+        app.downloadProgress = progress
+        app.downloadSpeed = speed.toString()
+        app.downloadRemaining = remaining.toString()
+    }
 }

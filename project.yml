@@ -33,20 +33,12 @@ targets:
         HEADER_SEARCH_PATHS:
           - "$(SRCROOT)/rust-core/generated"
           - "$(SRCROOT)/AgentTalk/Bridge"
-        SWIFT_OBJC_BRIDGING_HEADER: AgentTalk/Bridge/AgentTalk-Bridging-Header.h
-        OTHER_LINKER_FLAGS:
-          - "-framework Metal"
-          - "-framework CoreML"
-          - "-framework Accelerate"
-          - "-framework AppKit"
-          - "-framework AVFoundation"
-          - "-framework Carbon"
-          - "-framework Security"
+        SWIFT_OBJC_BRIDGING_HEADER: "AgentTalk/Bridge/AgentTalk-Bridging-Header.h"
       configs:
         Debug:
-          OTHER_LDFLAGS: "$(SRCROOT)/rust-core/target/debug/libagent_talk_core.a"
+          OTHER_LDFLAGS: "$(SRCROOT)/rust-core/target/debug/libagent_talk_core.a -framework Metal -framework CoreML -framework Accelerate -framework AudioToolbox -framework CoreAudio -lc++"
         Release:
-          OTHER_LDFLAGS: "$(SRCROOT)/rust-core/target/release/libagent_talk_core.a"
+          OTHER_LDFLAGS: "$(SRCROOT)/rust-core/target/release/libagent_talk_core.a -framework Metal -framework CoreML -framework Accelerate -framework AudioToolbox -framework CoreAudio -lc++"
     preBuildScripts:
       - name: "Build Rust Core"
         script: |
