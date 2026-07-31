@@ -7,8 +7,17 @@ func on_state_changed(phase: AppPhase, model: ModelPhase) {
         app.phase = phase
         app.modelPhase = model
 
+        if phase == .Processing || phase == .TranscriptReady {
+            app.showPanelIfNeeded()
+        }
+
         if phase == .TranscriptReady {
             app.transcript = get_transcript().toString()
+        }
+
+        // A press during model load is queued; fire it now that Ready arrived.
+        if phase == .Ready {
+            app.flushPendingStart()
         }
     }
 }

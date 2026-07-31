@@ -6,11 +6,8 @@ struct AgentTalkApp: App {
 
     var body: some Scene {
         MenuBarExtra("AgentTalk", systemImage: "mic.fill") {
-            Button("Start Dictation") {
-                AppModel.shared.startDictation()
-            }
-            Button("Stop Dictation") {
-                AppModel.shared.stopDictation()
+            Button("Toggle Dictation (⌘⇧D)") {
+                AppModel.shared.toggleDictation()
             }
             Divider()
             Button("Quit") {

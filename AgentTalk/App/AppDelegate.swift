@@ -6,6 +6,22 @@ import Carbon.HIToolbox
 private var gHotKeyRef: EventHotKeyRef?
 private let gHotKeySignature: OSType = OSType(0x4147544B) // "ATK"
 
+// Held-state tracking — suppress auto-repeat
+// The flag lives outside AppDelegate so the C callback can touch it.
+// Only accessed from the main queue (all hotkey events hop there).
+private var gHotkeyHeld = false
+
+/// Resets the hotkey held-state. Called when a dictation cycle completes
+/// (dismiss/close) so a stale held flag can't swallow the next press.
+func resetHotkeyHeldState() {
+    DispatchQueue.main.async {
+        if gHotkeyHeld {
+            print("[Hotkey] State reset (was held)")
+        }
+        gHotkeyHeld = false
+    }
+}
+
 // Global C callback for Carbon hotkey events
 private func hotkeyEventHandler(
     _ nextHandler: EventHandlerCallRef?,
@@ -28,14 +44,27 @@ private func hotkeyEventHandler(
     guard err == noErr, hkID.signature == gHotKeySignature else { return noErr }
 
     let kind = GetEventKind(event)
+    let isPress = (kind == UInt32(kEventHotKeyPressed))
+
     DispatchQueue.main.async {
         let model = AppModel.shared
-        if kind == UInt32(kEventHotKeyPressed) {
-            print("[AgentTalk] Carbon hotkey DOWN")
-            model.startDictation()
+
+        if isPress {
+            // Toggle ON the first key-down only.
+            // Suppress auto-repeat presses while the key is held.
+            guard !gHotkeyHeld else {
+                print("[Hotkey] Ignored repeat press (already held)")
+                return
+            }
+            gHotkeyHeld = true
+            print("[Hotkey] DOWN — toggle dictation")
+            model.toggleDictation()
         } else {
-            print("[AgentTalk] Carbon hotkey UP")
-            model.stopDictation()
+            // Release: clear the held flag, do NOT toggle.
+            // A quick tap = start on DOWN, nothing on UP.
+            // The next tap's DOWN toggles stop.
+            gHotkeyHeld = false
+            print("[Hotkey] UP — release (no toggle)")
         }
     }
 
@@ -44,8 +73,6 @@ private func hotkeyEventHandler(
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var localMonitor: Any?
-    private var isRecordingHotkey = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Unbuffered stdout so logs appear immediately when redirected
@@ -54,19 +81,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         print("[AgentTalk] Launching...")
 
         AppModel.shared.launch()
-        setupMenuBar()
         registerCarbonHotkey()
-        setupLocalMonitor()
 
         print("[AgentTalk] Ready")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        if let m = localMonitor { NSEvent.removeMonitor(m) }
         if let ref = gHotKeyRef { UnregisterEventHotKey(ref) }
+        gHotkeyHeld = false
     }
 
-    /// Carbon RegisterEventHotKey — works globally WITHOUT accessibility permission.
+    /// Carbon RegisterEventHotKey — the SINGLE hotkey path.
+    /// Works globally without accessibility permission.
     private func registerCarbonHotkey() {
         var hotKeyID = EventHotKeyID(signature: gHotKeySignature, id: 1)
 
@@ -90,7 +116,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
         ]
 
-        // C function pointer — no captures allowed
         let handler: EventHandlerUPP = { _, event, _ in
             hotkeyEventHandler(nil, event, nil)
         }
@@ -112,90 +137,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             print("[AgentTalk] Carbon event handler install failed: \(installErr)")
         }
-    }
-
-    /// Fallback local monitor — only fires when our app is focused.
-    private func setupLocalMonitor() {
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
-            self?.handleLocalKeyEvent(event)
-            return event
-        }
-    }
-
-    private func handleLocalKeyEvent(_ event: NSEvent) {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags.contains(.command), flags.contains(.shift), !flags.contains(.control), !flags.contains(.option),
-              event.keyCode == 2 else { return }
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            let model = AppModel.shared
-
-            switch event.type {
-            case .keyDown:
-                guard !self.isRecordingHotkey else { return }
-                self.isRecordingHotkey = true
-                print("[AgentTalk] Local hotkey DOWN")
-                model.startDictation()
-
-            case .keyUp:
-                guard self.isRecordingHotkey else { return }
-                self.isRecordingHotkey = false
-                print("[AgentTalk] Local hotkey UP")
-                model.stopDictation()
-
-            default:
-                break
-            }
-        }
-    }
-
-    /// Menu bar: Start Dictation + Quit.
-    /// Same code path as the hotkey.
-    private func setupMenuBar() {
-        let mainMenu = NSMenu()
-
-        let appMenuItem = NSMenuItem()
-        mainMenu.addItem(appMenuItem)
-        let appMenu = NSMenu()
-        appMenuItem.submenu = appMenu
-        appMenu.addItem(withTitle: "Quit AgentTalk",
-                        action: #selector(NSApplication.terminate(_:)),
-                        keyEquivalent: "q")
-
-        let editMenuItem = NSMenuItem()
-        mainMenu.addItem(editMenuItem)
-        let editMenu = NSMenu(title: "Edit")
-        editMenuItem.submenu = editMenu
-
-        let startItem = NSMenuItem(
-            title: "Start Dictation",
-            action: #selector(menuStartDictation),
-            keyEquivalent: "d"
-        )
-        startItem.keyEquivalentModifierMask = [.command, .shift]
-        startItem.target = self
-        editMenu.addItem(startItem)
-
-        let stopItem = NSMenuItem(
-            title: "Stop Dictation",
-            action: #selector(menuStopDictation),
-            keyEquivalent: ""
-        )
-        stopItem.target = self
-        editMenu.addItem(stopItem)
-
-        NSApp.mainMenu = mainMenu
-        print("[AgentTalk] Menu installed")
-    }
-
-    @objc private func menuStartDictation() {
-        print("[AgentTalk] Menu: Start Dictation")
-        AppModel.shared.startDictation()
-    }
-
-    @objc private func menuStopDictation() {
-        print("[AgentTalk] Menu: Stop Dictation")
-        AppModel.shared.stopDictation()
     }
 }

@@ -85,91 +85,90 @@ private struct RecordingStatusDot: View {
     }
 }
 
-// MARK: - Transition to Transcript State
+// MARK: - Transcript State
 
-/// Extends the recording pill to show the transcript after recording ends.
-/// Uses the same glass panel aesthetic, expanding from 44px → auto height.
+/// Transcript panel — same glass language, expands above the pill position.
+/// Exactly two actions: Copy and Close.
 struct TranscriptOverlayView: View {
     let transcript: String
+    var copied: Bool = false
     let onCopy: () -> Void
-    let onRetry: () -> Void
-    let onDismiss: () -> Void
+    let onClose: () -> Void
 
     @State private var isExpanded = false
+    @State private var showCheck = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Transcript text
-            if isExpanded {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(transcript)
-                        .font(.system(size: 14, weight: .regular, design: .default))
-                        .foregroundStyle(.white.opacity(0.92))
-                        .lineSpacing(4)
-                        .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 14) {
+            Text(transcript)
+                .font(.system(size: 14, weight: .regular, design: .default))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineSpacing(4)
+                .fixedSize(horizontal: false, vertical: true)
 
-                    HStack(spacing: 8) {
-                        TranscriptButton(title: "Copy", icon: "doc.on.doc", action: onCopy)
-                        TranscriptButton(title: "Retry", icon: "arrow.counterclockwise", action: onRetry)
-                        Spacer()
-                        TranscriptButton(title: "Done", icon: "checkmark", action: onDismiss, isPrimary: true)
+            HStack(spacing: 8) {
+                // Copy — primary
+                Button(action: {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                        showCheck = true
                     }
+                    onCopy()
+                }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 11, weight: .medium))
+                        Text(copied ? "Copied" : "Copy")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(.white.opacity(0.15))
+                    }
+                    .foregroundStyle(.white)
                 }
-                .padding(16)
-                .transition(
-                    .asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .top)),
-                        removal: .opacity.combined(with: .move(edge: .top))
-                    )
-                )
+                .buttonStyle(.plain)
+                .scaleEffect(showCheck ? 1.05 : 1.0)
+
+                Spacer()
+
+                // Close — secondary
+                Button(action: onClose) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .medium))
+                        Text("Close")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .foregroundStyle(.white.opacity(0.6))
+                }
+                .buttonStyle(.plain)
             }
         }
-        .frame(minWidth: 240)
+        .padding(18)
+        .frame(width: 300)
         .background {
-            RoundedRectangle(cornerRadius: isExpanded ? 16 : 22)
+            RoundedRectangle(cornerRadius: 18)
                 .fill(.ultraThinMaterial)
                 .environment(\.colorScheme, .dark)
         }
         .overlay {
-            RoundedRectangle(cornerRadius: isExpanded ? 16 : 22)
+            RoundedRectangle(cornerRadius: 18)
                 .stroke(.white.opacity(0.12), lineWidth: 0.5)
         }
-        .clipShape(RoundedRectangle(cornerRadius: isExpanded ? 16 : 22))
+        .clipShape(RoundedRectangle(cornerRadius: 18))
         .compositingGroup()
         .shadow(color: .black.opacity(0.4), radius: 20, y: 10)
+        .scaleEffect(isExpanded ? 1 : 0.9)
+        .opacity(isExpanded ? 1 : 0)
         .onAppear {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
                 isExpanded = true
             }
         }
-    }
-}
-
-private struct TranscriptButton: View {
-    let title: String
-    let icon: String
-    let action: () -> Void
-    var isPrimary: Bool = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 11, weight: .medium))
-                Text(title)
-                    .font(.system(size: 12, weight: .medium))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background {
-                if isPrimary {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(.white.opacity(0.15))
-                }
-            }
-            .foregroundStyle(isPrimary ? .white : .white.opacity(0.6))
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -196,8 +195,7 @@ private struct TranscriptButton: View {
             TranscriptOverlayView(
                 transcript: "This is a sample transcript. The user spoke these words and they appear here after processing.",
                 onCopy: {},
-                onRetry: {},
-                onDismiss: {}
+                onClose: {}
             )
             .padding(.bottom, 60)
         }

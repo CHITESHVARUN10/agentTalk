@@ -17,7 +17,6 @@ use state::{AppStateMachine, SessionPhase};
 static APP: Mutex<Option<AppStateMachine>> = Mutex::new(None);
 thread_local! {
     static AUDIO: RefCell<Option<audio::AudioCapture>> = const { RefCell::new(None) };
-    static ENGINE: RefCell<Option<inference::engine::InferenceEngine>> = const { RefCell::new(None) };
 }
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
@@ -241,13 +240,13 @@ fn start_recording() -> bool {
 }
 
 fn stop_recording() {
+    // 1. Capture audio on the calling (main) thread — thread_local AUDIO lives here
     let samples = with_audio(|audio_opt| {
         audio_opt.take().map(|a| a.stop()).unwrap_or_default()
     });
 
     let needs_inference = with_app(|app| {
-        let result = app.finish_recording();
-        match result {
+        match app.finish_recording() {
             Ok(_) => !samples.is_empty(),
             Err(e) => {
                 app.set_error(format!("Stop recording error: {}", e));
@@ -266,11 +265,13 @@ fn stop_recording() {
         return;
     }
 
+    // 2. Transition to Processing — Swift renders the Transcribing pill immediately
     with_app(|app| {
         app.model_state = ModelState::Inference;
     });
     notify_state();
 
+    // 3. Model path resolved on main thread
     let model_path = {
         let model_dir = with_app(|app| app.config.model.directory.clone());
         let home = dirs::home_dir().unwrap_or_default();
@@ -279,43 +280,50 @@ fn stop_recording() {
         std::path::PathBuf::from(dir).join(&filename)
     };
 
-    tracing::info!("Running inference on {} samples", samples.len());
+    // 4. Inference on a dedicated thread — keeps main thread free for UI.
+    //    Engine is thread_local to THIS thread, so the model stays resident
+    //    across stops on the same thread.
+    thread::spawn(move || {
+        tracing::info!("Running inference on {} samples", samples.len());
 
-    let result = ENGINE.with(|engine_cell| {
-        let mut cell = engine_cell.borrow_mut();
-
-        // Create engine on first use; reuse afterwards (model stays resident)
-        if cell.is_none() {
-            tracing::info!("Creating inference engine (first use)");
-            *cell = Some(inference::engine::InferenceEngine::new(model_path));
+        // First inference on this thread creates the engine; subsequent calls reuse it
+        thread_local! {
+            static ENGINE: RefCell<Option<inference::engine::InferenceEngine>> = const { RefCell::new(None) };
         }
 
-        let engine = cell.as_mut().expect("engine just created");
-        engine.load()?;
-        engine.transcribe(&samples)
-    });
+        let result = ENGINE.with(|engine_cell| {
+            let mut cell = engine_cell.borrow_mut();
+            if cell.is_none() {
+                tracing::info!("Creating inference engine (first use)");
+                *cell = Some(inference::engine::InferenceEngine::new(model_path));
+            }
+            let engine = cell.as_mut().expect("engine just created");
+            engine.load()?;
+            engine.transcribe(&samples)
+        });
 
-    with_app(|app| {
-        app.model_state = ModelState::Ready;
-        match result {
-            Ok(text) => {
-                if text.is_empty() {
-                    app.set_error("No speech detected".into());
-                    notify_error("No speech detected");
-                } else {
-                    app.set_transcript(text.clone());
-                    ffi::on_transcript_ready(text);
+        with_app(|app| {
+            app.model_state = ModelState::Ready;
+            match result {
+                Ok(text) => {
+                    if text.is_empty() {
+                        app.set_error("No speech detected".into());
+                        notify_error("No speech detected");
+                    } else {
+                        app.set_transcript(text.clone());
+                        ffi::on_transcript_ready(text);
+                    }
+                }
+                Err(e) => {
+                    let msg = format!("Inference failed: {}", e);
+                    tracing::error!("{}", msg);
+                    app.set_error(msg.clone());
+                    notify_error(&msg);
                 }
             }
-            Err(e) => {
-                let msg = format!("Inference failed: {}", e);
-                tracing::error!("{}", msg);
-                app.set_error(msg.clone());
-                notify_error(&msg);
-            }
-        }
+        });
+        notify_state();
     });
-    notify_state();
 }
 
 fn get_transcript() -> String {
