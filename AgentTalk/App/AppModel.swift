@@ -105,7 +105,15 @@ final class AppModel {
     // ── Transcript actions ──────────────────────────────────
 
     func copyTranscript() {
-        copy_to_clipboard()
+        // Direct NSPasteboard write — one atomic clipboard event.
+        // clearContents() then setString(_:forType:) bumps changeCount once,
+        // so clipboard managers record the transcript as a single new entry.
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(transcript, forType: .string)
+        let changeCount = pb.changeCount
+        print("[AgentTalk] Copied to clipboard (changeCount: \(changeCount))")
+
         copied = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
             self?.dismissTranscript()

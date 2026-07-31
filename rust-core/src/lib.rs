@@ -331,9 +331,7 @@ fn get_transcript() -> String {
 }
 
 fn copy_to_clipboard() {
-    let (text, needs_save) = with_app(|app| {
-        (app.transcript.clone(), app.previous_clipboard.is_none())
-    });
+    let text = with_app(|app| app.transcript.clone());
 
     let text = match text {
         Some(t) => t,
@@ -343,20 +341,11 @@ fn copy_to_clipboard() {
         }
     };
 
-    let prev = if needs_save {
-        system::get_clipboard().unwrap_or(None)
-    } else {
-        None
-    };
-
+    // Plain copy — no previous-clipboard save.
+    // Restoring old content later would overwrite the transcript in
+    // clipboard managers (pushing it to second position).
     match system::copy_to_clipboard(&text) {
-        Ok(()) => {
-            with_app(|app| {
-                if needs_save {
-                    app.previous_clipboard = prev;
-                }
-            });
-        }
+        Ok(()) => {}
         Err(e) => {
             notify_error(&format!("Clipboard copy failed: {}", e));
         }
@@ -375,11 +364,7 @@ fn paste_into_frontmost_app() {
 
 fn dismiss_transcript() {
     with_app(|app| {
-        if let Some(ref prev) = app.previous_clipboard.take() {
-            if let Err(e) = system::restore_clipboard(&Some(prev.clone())) {
-                tracing::warn!("Failed to restore clipboard: {}", e);
-            }
-        }
+        // No clipboard restore — the copied transcript stays the newest entry.
         app.dismiss();
     });
     notify_state();
