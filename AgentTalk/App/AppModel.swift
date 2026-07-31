@@ -16,7 +16,9 @@ final class AppModel {
     var downloadRemaining: String = ""
     var audioLevel: Float = 0.0
 
-    private var panel: NSWindow?
+    private var panel: NSPanel?
+    private var panelHost: NSHostingView<HUDContentView>?
+    private var recordingStartedAt: Date?
 
     private init() {}
 
@@ -25,23 +27,46 @@ final class AppModel {
         print("[AgentTalk] Core initialized: \(ok)")
         phase = get_app_phase()
         modelPhase = get_model_phase()
+        print("[AgentTalk] Initial phase: \(phase), model: \(modelPhase)")
 
-        Timer.scheduledTimer(withTimeInterval: 1.0/30.0, repeats: true) { _ in
-            Task { @MainActor in
-                AppModel.shared.audioLevel = get_audio_level()
+        Timer.scheduledTimer(withTimeInterval: 1.0/30.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.audioLevel = get_audio_level()
+        }
+
+        // Max recording duration watchdog — auto-stops at 90s cap
+        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self, self.phase == .Recording else { return }
+            let elapsed = self.recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+            if elapsed > 90 {
+                print("[AgentTalk] Recording timeout — auto stop")
+                self.stopDictation()
             }
         }
     }
 
-    func handleHotkeyPress() -> Bool {
-        guard phase == .Ready else { return false }
+    /// Single entry point for starting dictation — used by hotkey AND menu.
+    func startDictation() {
+        print("[AgentTalk] startDictation — phase: \(phase), model: \(modelPhase)")
+        guard phase == .Ready else {
+            print("[AgentTalk] startDictation blocked — phase \(phase) not Ready")
+            if modelPhase == .NotInstalled || modelPhase == .Downloading {
+                showPanel() // show download progress
+            }
+            return
+        }
         let ok = start_recording()
-        if ok { showPanel() }
-        return ok
+        print("[AgentTalk] start_recording returned: \(ok)")
+        if ok {
+            recordingStartedAt = Date()
+            showPanel()
+        }
     }
 
-    func handleHotkeyRelease() {
+    func stopDictation() {
         guard phase == .Recording else { return }
+        print("[AgentTalk] stopDictation")
+        recordingStartedAt = nil
         stop_recording()
     }
 
@@ -56,50 +81,72 @@ final class AppModel {
     func retryRecording() { retry_recording() }
 
     private func showPanel() {
-        guard panel == nil else { panel?.makeKeyAndOrderFront(nil); return }
+        if panel != nil {
+            panel?.makeKeyAndOrderFront(nil)
+            return
+        }
 
         let p = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 300, height: 60),
-            styleMask: [.nonactivatingPanel],
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 80),
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
         p.isFloatingPanel = true
-        p.level = .floating
-        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.level = .statusBar + 1
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         p.isOpaque = false
         p.backgroundColor = .clear
         p.hasShadow = false
         p.titleVisibility = .hidden
         p.titlebarAppearsTransparent = true
-        p.contentView = NSHostingView(rootView: HUDContentView())
-        p.center()
-        p.makeKeyAndOrderFront(nil)
+        p.isReleasedWhenClosed = false
+        p.hidesOnDeactivate = false
+        p.ignoresMouseEvents = false
+        p.becomesKeyOnlyIfNeeded = true
+        p.isMovable = false
+
+        // Kill any window-level background: transparent content view
+        p.contentView?.wantsLayer = true
+        p.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
+
+        let host = NSHostingView(rootView: HUDContentView())
+        host.frame = NSRect(x: 0, y: 0, width: 320, height: 80)
+        host.wantsLayer = true
+        host.layer?.backgroundColor = NSColor.clear.cgColor
+        p.contentView = host
+
+        // Bottom-center of screen
+        if let screen = NSScreen.main {
+            let sx = screen.visibleFrame.midX - 160
+            let sy = screen.visibleFrame.minY + 40
+            p.setFrameOrigin(NSPoint(x: sx, y: sy))
+        } else {
+            p.center()
+        }
+
+        panelHost = host
         panel = p
+        p.orderFrontRegardless()
+        print("[AgentTalk] Panel shown")
     }
 
     private func hidePanel() {
         panel?.orderOut(nil)
         panel = nil
+        panelHost = nil
     }
 }
 
+/// Observes AppModel directly — SwiftUI re-renders on model change.
 struct HUDContentView: View {
-    @State private var phase: AppPhase = .Idle
-    @State private var transcript: String = ""
-    @State private var audioLevel: Float = 0.0
-    @State private var downloadProgress: Float = 0.0
-    @State private var downloadSpeed: String = ""
-    @State private var downloadRemaining: String = ""
-    @State private var errorMessage: String = ""
-
-    private let model = AppModel.shared
+    @State private var model = AppModel.shared
 
     var body: some View {
         Group {
-            switch phase {
+            switch model.phase {
             case .Recording:
-                RecordingPillView(audioLevel: audioLevel)
+                RecordingPillView(audioLevel: model.audioLevel)
                     .frame(height: 52)
                     .padding(.horizontal, 8)
 
@@ -108,7 +155,7 @@ struct HUDContentView: View {
 
             case .TranscriptReady:
                 TranscriptOverlayView(
-                    transcript: transcript,
+                    transcript: model.transcript,
                     onCopy: { model.copyTranscript() },
                     onRetry: { model.retryRecording() },
                     onDismiss: { model.dismissTranscript() }
@@ -117,7 +164,7 @@ struct HUDContentView: View {
 
             case .Error:
                 ErrorView(
-                    message: errorMessage,
+                    message: model.errorMessage,
                     onRetry: { model.retryRecording() },
                     onDismiss: { model.dismissTranscript() }
                 )
@@ -125,26 +172,18 @@ struct HUDContentView: View {
 
             case .Preparing:
                 DownloadProgressView(
-                    progress: downloadProgress,
-                    speed: downloadSpeed,
-                    remaining: downloadRemaining
+                    progress: model.downloadProgress,
+                    speed: model.downloadSpeed,
+                    remaining: model.downloadRemaining
                 )
                 .padding(8)
 
             default:
                 EmptyView()
+                .frame(width: 300, height: 60)
             }
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: phase)
-        .onReceive(Timer.publish(every: 1.0/15.0, on: .main, in: .common).autoconnect()) { _ in
-            phase = model.phase
-            transcript = model.transcript
-            audioLevel = model.audioLevel
-            downloadProgress = model.downloadProgress
-            downloadSpeed = model.downloadSpeed
-            downloadRemaining = model.downloadRemaining
-            errorMessage = model.errorMessage
-        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: model.phase)
     }
 }
 

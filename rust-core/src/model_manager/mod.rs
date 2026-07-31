@@ -69,7 +69,12 @@ impl ModelManager {
     }
 
     pub fn is_installed(&self) -> bool {
-        self.model_path.exists()
+        // ggml-large-v3-turbo.bin (Q5_K_M) is ~1.54 GB (1,544,985,118 bytes).
+        // Treat files far smaller than expected as incomplete.
+        match fs::metadata(&self.model_path) {
+            Ok(m) => m.len() >= 1_400_000_000,
+            Err(_) => false,
+        }
     }
 
     pub fn verify(&self) -> anyhow::Result<bool> {
@@ -140,11 +145,21 @@ impl ModelManager {
         let mut existing_size = 0u64;
         let mut file = if self.model_path.exists() {
             let size = fs::metadata(&self.model_path)?.len();
-            tracing::info!(resume_from = size, "Resuming download");
-            existing_size = size;
-            fs::OpenOptions::new()
-                .append(true)
-                .open(&self.model_path)?
+            if size < 1_400_000_000 {
+                // Incomplete/corrupt partial — discard, start fresh
+                tracing::warn!(partial = size, "Discarding incomplete model file");
+                fs::remove_file(&self.model_path)?;
+            }
+            let size = fs::metadata(&self.model_path)?.len();
+            if size > 0 {
+                tracing::info!(resume_from = size, "Resuming download");
+                existing_size = size;
+                fs::OpenOptions::new()
+                    .append(true)
+                    .open(&self.model_path)?
+            } else {
+                fs::File::create(&self.model_path)?
+            }
         } else {
             fs::File::create(&self.model_path)?
         };

@@ -20,17 +20,23 @@ struct RecordingPillView: View {
     var audioLevel: Float = 0.2
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
+            // Recording status dot — breathing room from left edge
             RecordingStatusDot()
-                .padding(.leading, 2)
+                .padding(.leading, 14)
+
+            Spacer(minLength: 2)
 
             WaveformView(audioLevel: audioLevel)
-            .frame(height: 20)
+                .frame(height: 20)
+                .frame(maxWidth: 110)
+
+            Spacer(minLength: 2)
 
             Text("Recording")
                 .font(.system(size: 11, weight: .medium, design: .default))
                 .foregroundStyle(.white.opacity(0.4))
-                .padding(.trailing, 2)
+                .padding(.trailing, 14)
         }
         .frame(width: 240, height: 44)
         .background {

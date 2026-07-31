@@ -28,7 +28,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.agenttalk.app
         CODE_SIGN_ENTITLEMENTS: AgentTalk/AgentTalk.entitlements
         GENERATE_INFOPLIST_FILE: "YES"
-        INFOPLIST_KEY_LSUIElement: "YES"
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "AgentTalk needs microphone access to convert your speech to text. Audio never leaves your device."
         HEADER_SEARCH_PATHS:
           - "$(SRCROOT)/rust-core/generated"

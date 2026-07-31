@@ -17,6 +17,7 @@ use state::{AppStateMachine, SessionPhase};
 static APP: Mutex<Option<AppStateMachine>> = Mutex::new(None);
 thread_local! {
     static AUDIO: RefCell<Option<audio::AudioCapture>> = const { RefCell::new(None) };
+    static ENGINE: RefCell<Option<inference::engine::InferenceEngine>> = const { RefCell::new(None) };
 }
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
@@ -132,6 +133,12 @@ fn initialize_core() -> bool {
         tracing::warn!("Core already initialized");
         return true;
     }
+
+    // Init logging — without this, all tracing! macros are no-ops
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::level_filters::LevelFilter::DEBUG)
+        .with_writer(std::io::stderr)
+        .try_init();
 
     tracing::info!("AgentTalk core initializing");
 
@@ -274,11 +281,19 @@ fn stop_recording() {
 
     tracing::info!("Running inference on {} samples", samples.len());
 
-    let result = (|| -> anyhow::Result<String> {
-        let mut engine = inference::engine::InferenceEngine::new(model_path);
+    let result = ENGINE.with(|engine_cell| {
+        let mut cell = engine_cell.borrow_mut();
+
+        // Create engine on first use; reuse afterwards (model stays resident)
+        if cell.is_none() {
+            tracing::info!("Creating inference engine (first use)");
+            *cell = Some(inference::engine::InferenceEngine::new(model_path));
+        }
+
+        let engine = cell.as_mut().expect("engine just created");
         engine.load()?;
         engine.transcribe(&samples)
-    })();
+    });
 
     with_app(|app| {
         app.model_state = ModelState::Ready;
@@ -295,8 +310,8 @@ fn stop_recording() {
             Err(e) => {
                 let msg = format!("Inference failed: {}", e);
                 tracing::error!("{}", msg);
-                app.set_error(msg);
-                notify_error("Inference failed");
+                app.set_error(msg.clone());
+                notify_error(&msg);
             }
         }
     });
