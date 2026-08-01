@@ -14,6 +14,20 @@ struct AgentTalkApp: App {
                 AppModel.shared.toggleLivePreview()
             }
             Divider()
+            Text("Pill Position")
+            Button("Default (Bottom)") {
+                AppModel.shared.setDefaultPosition()
+            }
+            Button("Custom (Draggable)…") {
+                AppModel.shared.startPositionPlacement()
+            }
+            Button("Cancel Placement") {
+                AppModel.shared.cancelPositionPlacement()
+            }
+            Button("Reset Custom Position") {
+                AppModel.shared.resetCustomPosition()
+            }
+            Divider()
             Button("Quit") {
                 NSApplication.shared.terminate(nil)
             }

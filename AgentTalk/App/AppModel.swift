@@ -25,6 +25,34 @@ final class AppModel {
     private var lastVisibleFrame: NSRect?
     private var pendingStartOnReady = false
 
+    // ── Pill position (persisted) ─────────────────────────────
+    /// Sticky anchor for the recording pill — set once per app run.
+    private var recordingAnchor: NSPoint?
+    /// Custom position mode (menu bar toggle, UserDefaults-backed).
+    var usesCustomPosition: Bool = UserDefaults.standard.bool(forKey: "pillUsesCustomPosition")
+    /// True while the user is dragging the dummy pill to pick a spot.
+    var isPlacingPosition = false
+    /// The dummy placement panel.
+    private var placementPanel: NSPanel?
+    /// Saved custom pill origin (screen coords).
+    var customPillPosition: NSPoint? {
+        get {
+            let x = UserDefaults.standard.double(forKey: "pillCustomX")
+            let y = UserDefaults.standard.double(forKey: "pillCustomY")
+            guard x != 0 || y != 0 else { return nil }
+            return NSPoint(x: x, y: y)
+        }
+        set {
+            if let p = newValue {
+                UserDefaults.standard.set(p.x, forKey: "pillCustomX")
+                UserDefaults.standard.set(p.y, forKey: "pillCustomY")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "pillCustomX")
+                UserDefaults.standard.removeObject(forKey: "pillCustomY")
+            }
+        }
+    }
+
     private init() {}
 
     func launch() {
@@ -65,6 +93,12 @@ final class AppModel {
             startDictation()
         case .Recording:
             stopDictation()
+        case .TranscriptReady:
+            // One press: close the transcript AND immediately start a new
+            // recording. Same as clicking Close then pressing the hotkey.
+            print("[State] TranscriptReady — close + start new recording")
+            dismissTranscript()
+            startDictation()
         case .Idle, .Preparing:
             // Model still loading/downloading. Queue a start for when Ready
             // arrives so the press is not lost, and show preparation feedback.
@@ -72,7 +106,7 @@ final class AppModel {
             pendingStartOnReady = true
             showPanel()
         default:
-            // Processing, TranscriptReady, Error
+            // Processing, Error
             print("[State] toggleDictation ignored in phase \(phase)")
         }
     }
@@ -93,6 +127,107 @@ final class AppModel {
         livePreviewEnabled.toggle()
         set_live_preview_enabled(livePreviewEnabled)
         print("[AgentTalk] Live preview: \(livePreviewEnabled)")
+    }
+
+    // ── Pill position controls (menu bar) ────────────────────
+
+    /// Show the draggable dummy pill so the user can pick a custom spot.
+    func startPositionPlacement() {
+        isPlacingPosition = true
+        if placementPanel == nil {
+            createPlacementPanel()
+        }
+        placementPanel?.orderFrontRegardless()
+        print("[AgentTalk] Placement pill shown — drag and confirm")
+    }
+
+    /// User pressed ✓ on the dummy pill — save the spot.
+    func confirmPositionPlacement() {
+        guard let placementPanel else { return }
+        customPillPosition = placementPanel.frame.origin
+        usesCustomPosition = true
+        UserDefaults.standard.set(true, forKey: "pillUsesCustomPosition")
+        recordingAnchor = nil // real pill will use the saved spot next show
+        dismissPlacementPanel()
+        print("[AgentTalk] Custom position saved: \(placementPanel.frame.origin)")
+    }
+
+    /// Dismiss the dummy pill without saving.
+    func cancelPositionPlacement() {
+        dismissPlacementPanel()
+        print("[AgentTalk] Placement cancelled")
+    }
+
+    private func dismissPlacementPanel() {
+        placementPanel?.orderOut(nil)
+        placementPanel = nil
+        isPlacingPosition = false
+    }
+
+    private func createPlacementPanel() {
+        let p = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 44),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        p.isFloatingPanel = true
+        p.level = .statusBar + 1
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = false
+        p.titleVisibility = .hidden
+        p.titlebarAppearsTransparent = true
+        p.isReleasedWhenClosed = false
+        p.hidesOnDeactivate = false
+        p.ignoresMouseEvents = false
+        p.becomesKeyOnlyIfNeeded = true
+        // Dummy pill is ALWAYS draggable — no recording needed.
+        p.isMovable = true
+        p.isMovableByWindowBackground = true
+
+        p.contentView?.wantsLayer = true
+        p.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
+
+        let host = NSHostingView(rootView: PlacementPillView(onConfirm: {
+            Task { @MainActor in
+                AppModel.shared.confirmPositionPlacement()
+            }
+        }))
+        host.wantsLayer = true
+        host.layer?.backgroundColor = NSColor.clear.cgColor
+        host.layer?.masksToBounds = false
+        p.contentView = host
+
+        // Start where the last custom position was, else bottom-center.
+        if let saved = customPillPosition {
+            p.setFrameOrigin(saved)
+        } else if let screen = NSScreen.main {
+            p.setFrameOrigin(NSPoint(
+                x: screen.visibleFrame.midX - 120,
+                y: screen.visibleFrame.minY + 24
+            ))
+        }
+
+        placementPanel = p
+    }
+
+    /// Switch back to default (bottom-center) position.
+    func setDefaultPosition() {
+        usesCustomPosition = false
+        UserDefaults.standard.set(false, forKey: "pillUsesCustomPosition")
+        customPillPosition = nil
+        recordingAnchor = nil
+        dismissPlacementPanel()
+        print("[AgentTalk] Default pill position restored")
+    }
+
+    /// Reset saved custom position (back to bottom-center).
+    func resetCustomPosition() {
+        customPillPosition = nil
+        recordingAnchor = nil
+        print("[AgentTalk] Custom pill position reset")
     }
 
     /// Called when the model finishes loading and phase becomes Ready.
@@ -173,7 +308,10 @@ final class AppModel {
         p.hidesOnDeactivate = false
         p.ignoresMouseEvents = false
         p.becomesKeyOnlyIfNeeded = true
+        // The real pill is NOT draggable — position comes from the
+        // placement dummy (custom mode) or the default anchor.
         p.isMovable = false
+        p.isMovableByWindowBackground = false
 
         p.contentView?.wantsLayer = true
         p.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
@@ -218,16 +356,31 @@ final class AppModel {
 
     private func positionPanelForCurrentState() {
         guard let panel, let screen = NSScreen.main else { return }
-        let frame = panel.frame
         let visible = screen.visibleFrame
+
+        // Custom mode: honor the user's saved spot (set once per panel life),
+        // never re-center on transitions — their placement wins.
+        if usesCustomPosition, let saved = customPillPosition, recordingAnchor == nil {
+            panel.setFrameOrigin(saved)
+            recordingAnchor = saved
+            return
+        }
+
+        // Anchor: computed once (bottom-center), sticky for the whole run.
+        if recordingAnchor == nil {
+            recordingAnchor = NSPoint(
+                x: visible.midX - panel.frame.width / 2,
+                y: visible.minY + 24
+            )
+        }
 
         switch phase {
         case .TranscriptReady:
-            let y = visible.minY + 120
-            panel.setFrameOrigin(NSPoint(x: visible.midX - frame.width/2, y: y))
+            // Float above the anchor, horizontally aligned to it.
+            let y = (recordingAnchor?.y ?? visible.minY + 24) + panel.frame.height + 24
+            panel.setFrameOrigin(NSPoint(x: recordingAnchor?.x ?? 0, y: y))
         default:
-            let y = visible.minY + 24
-            panel.setFrameOrigin(NSPoint(x: visible.midX - frame.width/2, y: y))
+            panel.setFrameOrigin(recordingAnchor ?? .zero)
         }
     }
 

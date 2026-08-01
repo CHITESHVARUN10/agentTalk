@@ -234,6 +234,63 @@ struct TranscriptOverlayView: View {
     }
 }
 
+// MARK: - Placement Dummy Pill
+
+/// Draggable dummy pill shown when the user is choosing a custom position.
+/// Same glass language as the recording pill; checkmark confirms the spot.
+struct PlacementPillView: View {
+    let onConfirm: () -> Void
+
+    @State private var isVisible = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "hand.draw")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white.opacity(0.5))
+                .padding(.leading, 16)
+
+            Spacer(minLength: 2)
+
+            Text("Drag to position")
+                .font(.system(size: 11, weight: .medium, design: .default))
+                .foregroundStyle(.white.opacity(0.5))
+
+            Spacer(minLength: 2)
+
+            // Checkmark — confirm this position
+            Button(action: onConfirm) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(.trailing, 14)
+                    .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(width: 240, height: 44)
+        .background {
+            RoundedRectangle(cornerRadius: 22)
+                .fill(.ultraThinMaterial)
+                .environment(\.colorScheme, .dark)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 22)
+                .stroke(.white.opacity(0.12), lineWidth: 0.5)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .compositingGroup()
+        .shadow(color: .black.opacity(0.4), radius: 20, y: 10)
+        .scaleEffect(isVisible ? 1 : 0.85)
+        .opacity(isVisible ? 1 : 0)
+        .onAppear {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                isVisible = true
+            }
+        }
+    }
+}
+
 // MARK: - Previews
 
 #Preview("Recording") {
