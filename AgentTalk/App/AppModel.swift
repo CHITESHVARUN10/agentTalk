@@ -190,7 +190,14 @@ final class AppModel {
 
     private func panelSizeForCurrentState() -> CGSize {
         switch phase {
-        case .Recording, .Processing:
+        case .Recording:
+            // Wider + taller when the live-preview bubble is visible above the pill
+            let previewVisible = livePreviewEnabled && !partialTranscript.isEmpty
+            if previewVisible {
+                return CGSize(width: 400, height: 120)
+            }
+            return CGSize(width: 240, height: 44)
+        case .Processing:
             return CGSize(width: 240, height: 44)
         case .TranscriptReady:
             return CGSize(width: 300, height: 170)
@@ -254,7 +261,6 @@ struct HUDContentView: View {
                     livePreview: model.partialTranscript,
                     livePreviewEnabled: model.livePreviewEnabled
                 )
-                .frame(width: 240, height: 44)
 
             case .Processing:
                 TranscribingPillView()

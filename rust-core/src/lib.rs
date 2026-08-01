@@ -471,8 +471,11 @@ fn chunker_thread(stop_rx: mpsc::Receiver<()>, chunk_seconds: u64, overlap_secon
         }
 
         CHUNKS_SENT.fetch_add(1, Ordering::SeqCst);
-        // The final chunk must start after what this chunk covered.
-        LAST_CHUNK_END.store(buf_len.saturating_sub(window as u64), Ordering::SeqCst);
+        // The final chunk must start AFTER the audio this chunk covered.
+        // `buf_len` is the buffer length at snapshot time = end of this window.
+        // (Do NOT subtract the window — that would re-cover already-decoded
+        // audio and corrupt the persistent decode state → data loss.)
+        LAST_CHUNK_END.store(buf_len, Ordering::SeqCst);
         if let Some(tx) = INFERENCE_TX.get() {
             let _ = tx.send(InferenceJob::TranscribeChunk {
                 samples: chunk,

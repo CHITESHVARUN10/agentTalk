@@ -34,7 +34,10 @@ func on_transcript_ready(text: RustString) {
 func on_partial_transcript(text: RustString) {
     let t = text.toString()
     DispatchQueue.main.async {
-        AppModel.shared.partialTranscript = t
+        let app = AppModel.shared
+        app.partialTranscript = t
+        // Panel may need to grow to fit the preview bubble above the pill
+        app.showPanelIfNeeded()
     }
 }
 

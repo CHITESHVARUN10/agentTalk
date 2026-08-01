@@ -22,6 +22,33 @@ struct RecordingPillView: View {
     var livePreviewEnabled: Bool = false
 
     var body: some View {
+        // Column: optional live-preview bubble above, pill below.
+        // The pill itself is unchanged — waveform always visible.
+        // The column widens to 400 when the preview is showing so the
+        // bubble has room for readable text; the pill stays 240 centered.
+        VStack(spacing: 6) {
+            if livePreviewEnabled && !livePreview.isEmpty {
+                LivePreviewBubble(text: livePreview)
+            }
+
+            pill
+        }
+        .frame(width: previewVisible ? 400 : 240)
+        .shadow(color: .black.opacity(0.4), radius: 20, y: 10)
+        .scaleEffect(isVisible ? 1 : 0.85)
+        .opacity(isVisible ? 1 : 0)
+        .onAppear {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                isVisible = true
+            }
+        }
+    }
+
+    private var previewVisible: Bool {
+        livePreviewEnabled && !livePreview.isEmpty
+    }
+
+    private var pill: some View {
         HStack(spacing: 10) {
             // Recording status dot — breathing room from left edge
             RecordingStatusDot()
@@ -29,19 +56,10 @@ struct RecordingPillView: View {
 
             Spacer(minLength: 2)
 
-            if livePreviewEnabled && !livePreview.isEmpty {
-                // Live transcript preview — replaces the waveform slot
-                Text(livePreview)
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: 150, alignment: .leading)
-            } else {
-                WaveformView(audioLevel: audioLevel)
-                    .frame(height: 20)
-                    .frame(maxWidth: 110)
-            }
+            // Waveform always present — never replaced
+            WaveformView(audioLevel: audioLevel)
+                .frame(height: 20)
+                .frame(maxWidth: 110)
 
             Spacer(minLength: 2)
 
@@ -62,14 +80,36 @@ struct RecordingPillView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 22))
         .compositingGroup()
-        .shadow(color: .black.opacity(0.4), radius: 20, y: 10)
-        .scaleEffect(isVisible ? 1 : 0.85)
-        .opacity(isVisible ? 1 : 0)
-        .onAppear {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                isVisible = true
+    }
+}
+
+/// Glass bubble above the pill showing the live transcript so far.
+/// Wider than the pill so the preview is actually readable.
+/// Same material/border language as the pill.
+private struct LivePreviewBubble: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 12, weight: .regular, design: .default))
+            .foregroundStyle(.white.opacity(0.75))
+            .lineLimit(3)
+            .truncationMode(.tail)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .frame(maxWidth: 400, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(.ultraThinMaterial)
+                    .environment(\.colorScheme, .dark)
             }
-        }
+            .overlay {
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(.white.opacity(0.12), lineWidth: 0.5)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .compositingGroup()
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 }
 
