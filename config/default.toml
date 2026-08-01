@@ -10,14 +10,14 @@ filename = "ggml-large-v3-turbo.bin"
 # Automatically download model on first launch if not present
 auto_download = true
 # Unload model from memory after this many seconds of inactivity (0 = never)
-idle_unload_seconds = 300
+idle_unload_seconds = 360
 
 [audio]
 # Whisper requires 16kHz mono f32 input
 sample_rate = 16000
 channels = 1
 # Soft cap: warn user before reaching this limit
-max_duration_seconds = 90
+max_duration_seconds = 300
 
 [inference]
 # Number of CPU threads for non-GPU operations

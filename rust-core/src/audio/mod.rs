@@ -19,7 +19,8 @@ pub struct AudioCapture {
 }
 
 impl AudioCapture {
-    pub fn start() -> anyhow::Result<Self> {
+    /// `max_seconds` — the recording ring-buffer cap (from config).
+    pub fn start(max_seconds: u64) -> anyhow::Result<Self> {
         let host = cpal::default_host();
         let device = host
             .default_input_device()
@@ -34,7 +35,8 @@ impl AudioCapture {
             buffer_size: cpal::BufferSize::Default,
         };
 
-        let buffer = Arc::new(Mutex::new(Vec::with_capacity(16000 * 90)));
+        let max_samples = 16000 * max_seconds as usize;
+        let buffer = Arc::new(Mutex::new(Vec::with_capacity(max_samples)));
         let level = Arc::new(AtomicU32::new(0));
 
         let buf_clone = buffer.clone();
@@ -48,7 +50,6 @@ impl AudioCapture {
             &config,
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
                 let mut buf = buf_clone.lock().unwrap();
-                let max_samples = 16000 * 90;
                 if buf.len() + data.len() > max_samples {
                     let excess = (buf.len() + data.len()) - max_samples;
                     if excess < buf.len() {
@@ -66,7 +67,7 @@ impl AudioCapture {
         )?;
 
         stream.play()?;
-        tracing::info!("Audio capture started");
+        tracing::info!(max_seconds, "Audio capture started");
 
         Ok(Self {
             stream,

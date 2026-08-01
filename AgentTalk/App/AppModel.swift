@@ -37,11 +37,11 @@ final class AppModel {
             self.audioLevel = get_audio_level()
         }
 
-        // Max recording duration watchdog — auto-stops at 90s cap
+        // Max recording duration watchdog — auto-stops at 300s cap (5 min)
         Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self, self.phase == .Recording else { return }
             let elapsed = self.recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
-            if elapsed > 90 {
+            if elapsed > 300 {
                 print("[AgentTalk] Recording timeout — auto stop")
                 self.stopDictation()
             }

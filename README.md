@@ -92,10 +92,11 @@ Config lives in `config/default.toml` (overridable via `AGENTTALK_ENV`, env vars
 | Section | Setting | Default |
 |---------|---------|---------|
 | `model` | `auto_download` | `true` |
-| `model` | `idle_unload_seconds` | `300` |
+| `model` | `idle_unload_seconds` | `360` (6 min — unloads model from RAM when idle) |
 | `audio` | `sample_rate` | `16000` |
-| `audio` | `max_duration_seconds` | `90` |
+| `audio` | `max_duration_seconds` | `300` (5 min) |
 | `inference` | `language` | `en` |
+| `inference` | `n_threads` | `4` |
 | `hotkey` | `key` / `modifiers` | `d` / `command+shift` |
 
 Model storage: `~/Library/Application Support/AgentTalk/models/`

@@ -13,6 +13,7 @@ pub struct InferenceEngine {
     model_path: PathBuf,
     context: Option<Arc<Mutex<whisper_rs::WhisperContext>>>,
     state: InferenceState,
+    n_threads: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,11 +27,12 @@ pub enum InferenceState {
 }
 
 impl InferenceEngine {
-    pub fn new(model_path: PathBuf) -> Self {
+    pub fn new(model_path: PathBuf, n_threads: i32) -> Self {
         Self {
             model_path,
             context: None,
             state: InferenceState::NotLoaded,
+            n_threads,
         }
     }
 
@@ -115,7 +117,9 @@ impl InferenceEngine {
             .ok_or_else(|| anyhow::anyhow!("Context not loaded"))?;
         let ctx = ctx.lock().unwrap();
 
-        let params = whisper_rs::FullParams::new(whisper_rs::SamplingStrategy::Greedy { best_of: 1 });
+        let mut params = whisper_rs::FullParams::new(whisper_rs::SamplingStrategy::Greedy { best_of: 1 });
+        params.set_n_threads(self.n_threads);
+        params.set_language(Some("en"));
 
         let mut state = ctx.create_state()?;
 

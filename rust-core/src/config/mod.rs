@@ -114,12 +114,12 @@ impl AppConfig {
                 directory: "~/Library/Application Support/AgentTalk/models".into(),
                 filename: "ggml-large-v3-turbo.bin".into(),
                 auto_download: true,
-                idle_unload_seconds: 300,
+                idle_unload_seconds: 360,
             },
             audio: AudioSection {
                 sample_rate: 16000,
                 channels: 1,
-                max_duration_seconds: 90,
+                max_duration_seconds: 300,
             },
             inference: InferenceSection {
                 n_threads: 4,

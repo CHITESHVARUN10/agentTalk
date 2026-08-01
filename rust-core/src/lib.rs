@@ -7,9 +7,10 @@ pub mod state;
 pub mod system;
 
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{mpsc, Mutex, OnceLock};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use model_manager::{ModelManager, ModelState};
 use state::{AppStateMachine, SessionPhase};
@@ -19,6 +20,24 @@ thread_local! {
     static AUDIO: RefCell<Option<audio::AudioCapture>> = const { RefCell::new(None) };
 }
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+// ── Inference worker ─────────────────────────────────────────
+// A dedicated long-lived thread owns the Whisper engine (WhisperContext is !Send).
+// The watchdog thread sends Unload after idle; stop_recording sends Transcribe jobs.
+
+/// Monotonic seconds of the last dictation activity. Bumped on start/stop/transcribe.
+static LAST_ACTIVITY: AtomicU64 = AtomicU64::new(0);
+
+enum InferenceJob {
+    Transcribe {
+        samples: Vec<f32>,
+        model_path: std::path::PathBuf,
+        n_threads: i32,
+    },
+    Unload,
+}
+
+static INFERENCE_TX: OnceLock<mpsc::Sender<InferenceJob>> = OnceLock::new();
 
 fn with_app<F, R>(f: F) -> R
 where
@@ -151,6 +170,15 @@ fn initialize_core() -> bool {
 
     tracing::info!("AgentTalk core initialized");
 
+    // Dedicated inference thread — owns the Whisper engine for its lifetime.
+    let (tx, rx) = mpsc::channel::<InferenceJob>();
+    INFERENCE_TX.set(tx).ok();
+    thread::spawn(move || inference_worker(rx));
+
+    // Idle watchdog — unloads the model after idle_unload_seconds of no activity.
+    let idle_seconds = with_app(|app| app.config.model.idle_unload_seconds);
+    thread::spawn(move || idle_watchdog(idle_seconds));
+
     thread::spawn(|| {
         let mut mgr = match ModelManager::new() {
             Ok(m) => m,
@@ -210,6 +238,110 @@ fn is_initialized() -> bool {
     INITIALIZED.load(Ordering::SeqCst)
 }
 
+/// Long-lived inference thread. Owns the engine (thread-local) so the model
+/// stays resident between transcriptions, and unloads on request.
+fn inference_worker(rx: mpsc::Receiver<InferenceJob>) {
+    thread_local! {
+        static ENGINE: RefCell<Option<inference::engine::InferenceEngine>> = const { RefCell::new(None) };
+    }
+
+    tracing::info!("Inference worker started");
+
+    while let Ok(job) = rx.recv() {
+        match job {
+            InferenceJob::Transcribe { samples, model_path, n_threads } => {
+                let start = Instant::now();
+                tracing::info!(
+                    samples = samples.len(),
+                    duration_secs = %(samples.len() as f32 / 16000.0),
+                    "Transcribe job received"
+                );
+
+                let result = ENGINE.with(|cell| {
+                    let mut cell = cell.borrow_mut();
+                    if cell.is_none() {
+                        tracing::info!("Creating inference engine (first use)");
+                        *cell = Some(inference::engine::InferenceEngine::new(model_path, n_threads));
+                    }
+                    let engine = cell.as_mut().expect("engine just created");
+                    engine.load()?;
+                    engine.transcribe(&samples)
+                });
+
+                tracing::info!(elapsed_ms = start.elapsed().as_millis(), "Transcribe job done");
+
+                with_app(|app| {
+                    app.model_state = ModelState::Ready;
+                    match result {
+                        Ok(text) => {
+                            if text.is_empty() {
+                                app.set_error("No speech detected".into());
+                                notify_error("No speech detected");
+                            } else {
+                                app.set_transcript(text.clone());
+                                ffi::on_transcript_ready(text);
+                            }
+                        }
+                        Err(e) => {
+                            let msg = format!("Inference failed: {}", e);
+                            tracing::error!("{}", msg);
+                            app.set_error(msg.clone());
+                            notify_error(&msg);
+                        }
+                    }
+                });
+                notify_state();
+                LAST_ACTIVITY.store(now_secs(), Ordering::SeqCst);
+            }
+            InferenceJob::Unload => {
+                tracing::info!("Unload job received — freeing model RAM");
+                ENGINE.with(|cell| {
+                    if let Some(engine) = cell.borrow_mut().as_mut() {
+                        engine.unload();
+                    }
+                });
+            }
+        }
+    }
+
+    tracing::info!("Inference worker exiting");
+}
+
+/// Polls LAST_ACTIVITY; sends Unload when the model has been idle too long.
+fn idle_watchdog(idle_seconds: u64) {
+    if idle_seconds == 0 {
+        tracing::info!("Idle watchdog disabled (idle_unload_seconds = 0)");
+        return;
+    }
+
+    tracing::info!(idle_seconds, "Idle watchdog started");
+
+    loop {
+        thread::sleep(Duration::from_secs(30));
+
+        let idle_for = now_secs().saturating_sub(LAST_ACTIVITY.load(Ordering::SeqCst));
+        if idle_for > idle_seconds {
+            tracing::info!(idle_for, "Model idle — unloading");
+            if let Some(tx) = INFERENCE_TX.get() {
+                let _ = tx.send(InferenceJob::Unload);
+            }
+            // Don't spam: reset the clock so we only unload again after another full idle period
+            LAST_ACTIVITY.store(now_secs(), Ordering::SeqCst);
+        }
+    }
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn bump_activity() {
+    LAST_ACTIVITY.store(now_secs(), Ordering::SeqCst);
+}
+
 fn start_recording() -> bool {
     with_app(|app| {
         if let Err(e) = app.begin_recording() {
@@ -221,8 +353,11 @@ fn start_recording() -> bool {
         ffi::on_state_changed(phase_to_ffi(app.phase), model_to_ffi(app.model_state));
         true
     });
+    bump_activity();
 
-    match audio::AudioCapture::start() {
+    let max_seconds = with_app(|app| app.config.audio.max_duration_seconds);
+
+    match audio::AudioCapture::start(max_seconds) {
         Ok(capture) => {
             with_audio(|a| *a = Some(capture));
         }
@@ -270,60 +405,33 @@ fn stop_recording() {
         app.model_state = ModelState::Inference;
     });
     notify_state();
+    bump_activity();
 
-    // 3. Model path resolved on main thread
-    let model_path = {
+    // 3. Model path + thread count resolved on main thread
+    let (model_path, n_threads) = {
         let model_dir = with_app(|app| app.config.model.directory.clone());
         let home = dirs::home_dir().unwrap_or_default();
         let dir = model_dir.replacen("~/", &format!("{}/", home.display()), 1);
         let filename = with_app(|app| app.config.model.filename.clone());
-        std::path::PathBuf::from(dir).join(&filename)
+        let threads = with_app(|app| app.config.inference.n_threads);
+        (std::path::PathBuf::from(dir).join(&filename), threads)
     };
 
-    // 4. Inference on a dedicated thread — keeps main thread free for UI.
-    //    Engine is thread_local to THIS thread, so the model stays resident
-    //    across stops on the same thread.
-    thread::spawn(move || {
-        tracing::info!("Running inference on {} samples", samples.len());
-
-        // First inference on this thread creates the engine; subsequent calls reuse it
-        thread_local! {
-            static ENGINE: RefCell<Option<inference::engine::InferenceEngine>> = const { RefCell::new(None) };
-        }
-
-        let result = ENGINE.with(|engine_cell| {
-            let mut cell = engine_cell.borrow_mut();
-            if cell.is_none() {
-                tracing::info!("Creating inference engine (first use)");
-                *cell = Some(inference::engine::InferenceEngine::new(model_path));
-            }
-            let engine = cell.as_mut().expect("engine just created");
-            engine.load()?;
-            engine.transcribe(&samples)
+    // 4. Hand off to the dedicated inference thread — main thread stays free for UI.
+    //    Engine stays resident on that thread; watchdog unloads it after idle.
+    if let Some(tx) = INFERENCE_TX.get() {
+        let _ = tx.send(InferenceJob::Transcribe {
+            samples,
+            model_path,
+            n_threads,
         });
-
+    } else {
+        tracing::error!("Inference worker not initialized");
         with_app(|app| {
-            app.model_state = ModelState::Ready;
-            match result {
-                Ok(text) => {
-                    if text.is_empty() {
-                        app.set_error("No speech detected".into());
-                        notify_error("No speech detected");
-                    } else {
-                        app.set_transcript(text.clone());
-                        ffi::on_transcript_ready(text);
-                    }
-                }
-                Err(e) => {
-                    let msg = format!("Inference failed: {}", e);
-                    tracing::error!("{}", msg);
-                    app.set_error(msg.clone());
-                    notify_error(&msg);
-                }
-            }
+            app.set_error("Inference worker not initialized".into());
         });
         notify_state();
-    });
+    }
 }
 
 fn get_transcript() -> String {
