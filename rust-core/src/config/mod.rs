@@ -38,6 +38,8 @@ pub struct AudioSection {
     pub sample_rate: u32,
     pub channels: u8,
     pub max_duration_seconds: u64,
+    pub chunk_seconds: u32,
+    pub chunk_overlap_seconds: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,6 +122,8 @@ impl AppConfig {
                 sample_rate: 16000,
                 channels: 1,
                 max_duration_seconds: 300,
+                chunk_seconds: 20,
+                chunk_overlap_seconds: 2,
             },
             inference: InferenceSection {
                 n_threads: 4,

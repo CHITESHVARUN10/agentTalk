@@ -8,6 +8,7 @@ Offline, macOS-native AI dictation. Press a global shortcut, speak, release — 
 
 - **Global hotkey (⌘⇧D)** — start/stop dictation from any app, no accessibility permission required
 - **On-device transcription** — Whisper Turbo (`ggml-large-v3-turbo`) runs locally via Metal acceleration; audio never leaves your machine
+- **Live transcription** — 20-second chunks are transcribed while you keep speaking; the transcript appears almost instantly on stop (overlapping windows + dedupe prevent data loss)
 - **Automatic model management** — downloads ~1.5 GB Whisper model on first launch, resumable, checksum-verified, cached
 - **Glass HUD** — floating recording pill with live waveform, transcribing state, and a compact transcript card (Copy / Close)
 - **Clipboard-first** — transcript copied with standard NSPasteboard APIs; shows up as the newest entry in clipboard managers
@@ -95,6 +96,8 @@ Config lives in `config/default.toml` (overridable via `AGENTTALK_ENV`, env vars
 | `model` | `idle_unload_seconds` | `360` (6 min — unloads model from RAM when idle) |
 | `audio` | `sample_rate` | `16000` |
 | `audio` | `max_duration_seconds` | `300` (5 min) |
+| `audio` | `chunk_seconds` | `20` (live transcription window; `0` disables) |
+| `audio` | `chunk_overlap_seconds` | `2` (boundary overlap between chunks) |
 | `inference` | `language` | `en` |
 | `inference` | `n_threads` | `4` |
 | `hotkey` | `key` / `modifiers` | `d` / `command+shift` |

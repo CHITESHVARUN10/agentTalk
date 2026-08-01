@@ -18,6 +18,12 @@ sample_rate = 16000
 channels = 1
 # Soft cap: warn user before reaching this limit
 max_duration_seconds = 300
+# Live transcription: send completed chunks of this many seconds to the model
+# while recording continues (0 = disabled, transcribe only on stop)
+chunk_seconds = 20
+# Overlap each chunk with the previous chunk's tail (seconds) to avoid
+# losing words at chunk boundaries
+chunk_overlap_seconds = 2
 
 [inference]
 # Number of CPU threads for non-GPU operations

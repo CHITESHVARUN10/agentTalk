@@ -81,6 +81,21 @@ impl AudioCapture {
         std::mem::take(&mut *buf)
     }
 
+    /// Non-destructive: returns the last `n` samples (the chunk window).
+    /// Used by the chunker to snapshot a window while recording continues.
+    pub fn tail_samples(&self, n: usize) -> Vec<f32> {
+        let buf = self.buffer.lock().unwrap();
+        let start = buf.len().saturating_sub(n);
+        buf[start..].to_vec()
+    }
+
+    /// Non-destructive: returns (last `n` samples, total buffer length).
+    pub fn tail_samples_with_len(&self, n: usize) -> (Vec<f32>, u64) {
+        let buf = self.buffer.lock().unwrap();
+        let start = buf.len().saturating_sub(n);
+        (buf[start..].to_vec(), buf.len() as u64)
+    }
+
     pub fn current_level(&self) -> f32 {
         let bits = self.level.load(Ordering::Relaxed);
         let rms = f32::from_bits(bits);

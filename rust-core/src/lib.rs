@@ -29,15 +29,29 @@ static INITIALIZED: AtomicBool = AtomicBool::new(false);
 static LAST_ACTIVITY: AtomicU64 = AtomicU64::new(0);
 
 enum InferenceJob {
-    Transcribe {
+    TranscribeChunk {
         samples: Vec<f32>,
-        model_path: std::path::PathBuf,
-        n_threads: i32,
+        is_final: bool,
     },
+    ResetSession,
     Unload,
 }
 
 static INFERENCE_TX: OnceLock<mpsc::Sender<InferenceJob>> = OnceLock::new();
+
+/// Shared with the chunker thread: stop signal when recording ends.
+static CHUNKER_STOP_TX: Mutex<Option<mpsc::Sender<()>>> = Mutex::new(None);
+/// Number of non-final chunks dispatched this session (for stop-path decisions).
+static CHUNKS_SENT: AtomicU64 = AtomicU64::new(0);
+/// Set when any chunk job failed — triggers whole-buffer re-transcribe at stop.
+static CHUNK_FAILED: AtomicBool = AtomicBool::new(false);
+/// Buffer length (samples) at the last chunk send — the final chunk starts here.
+static LAST_CHUNK_END: AtomicU64 = AtomicU64::new(0);
+/// Samples-per-second (16 kHz) — used by the chunker to size windows.
+static SAMPLE_RATE: AtomicU64 = AtomicU64::new(16000);
+/// Model path + thread count for engine creation (resolved once at init).
+static MODEL_PATH: Mutex<Option<std::path::PathBuf>> = Mutex::new(None);
+static N_THREADS: AtomicU64 = AtomicU64::new(4);
 
 fn with_app<F, R>(f: F) -> R
 where
@@ -170,6 +184,22 @@ fn initialize_core() -> bool {
 
     tracing::info!("AgentTalk core initialized");
 
+    // Resolve model path + engine params once for the inference worker.
+    {
+        let model_dir = with_app(|app| app.config.model.directory.clone());
+        let home = dirs::home_dir().unwrap_or_default();
+        let dir = model_dir.replacen("~/", &format!("{}/", home.display()), 1);
+        let filename = with_app(|app| app.config.model.filename.clone());
+        let path = std::path::PathBuf::from(dir).join(&filename);
+        *MODEL_PATH.lock().unwrap() = Some(path);
+
+        let threads = with_app(|app| app.config.inference.n_threads);
+        N_THREADS.store(threads.max(1) as u64, Ordering::SeqCst);
+
+        let rate = with_app(|app| app.config.audio.sample_rate);
+        SAMPLE_RATE.store(rate as u64, Ordering::SeqCst);
+    }
+
     // Dedicated inference thread — owns the Whisper engine for its lifetime.
     let (tx, rx) = mpsc::channel::<InferenceJob>();
     INFERENCE_TX.set(tx).ok();
@@ -247,51 +277,92 @@ fn inference_worker(rx: mpsc::Receiver<InferenceJob>) {
 
     tracing::info!("Inference worker started");
 
+    // Session-scoped state: stitched transcript + last text for dedupe.
+    let mut session_text = String::new();
+    let mut last_tail: Option<String> = None;
+
     while let Ok(job) = rx.recv() {
         match job {
-            InferenceJob::Transcribe { samples, model_path, n_threads } => {
+            InferenceJob::ResetSession => {
+                tracing::info!("Reset session");
+                session_text.clear();
+                last_tail = None;
+                ENGINE.with(|cell| {
+                    if let Some(engine) = cell.borrow_mut().as_mut() {
+                        engine.reset_decode_state();
+                    }
+                });
+                CHUNKS_SENT.store(0, Ordering::SeqCst);
+                CHUNK_FAILED.store(false, Ordering::SeqCst);
+                LAST_CHUNK_END.store(0, Ordering::SeqCst);
+            }
+            InferenceJob::TranscribeChunk { samples, is_final } => {
                 let start = Instant::now();
                 tracing::info!(
                     samples = samples.len(),
-                    duration_secs = %(samples.len() as f32 / 16000.0),
-                    "Transcribe job received"
+                    is_final,
+                    "Chunk job received"
                 );
 
                 let result = ENGINE.with(|cell| {
                     let mut cell = cell.borrow_mut();
                     if cell.is_none() {
                         tracing::info!("Creating inference engine (first use)");
-                        *cell = Some(inference::engine::InferenceEngine::new(model_path, n_threads));
+                        let path = MODEL_PATH.lock().unwrap().clone();
+                        let threads = N_THREADS.load(Ordering::SeqCst) as i32;
+                        *cell = Some(inference::engine::InferenceEngine::new(
+                            path.unwrap_or_default(),
+                            threads,
+                        ));
                     }
                     let engine = cell.as_mut().expect("engine just created");
                     engine.load()?;
-                    engine.transcribe(&samples)
+                    engine.transcribe_chunk(&samples)
                 });
 
-                tracing::info!(elapsed_ms = start.elapsed().as_millis(), "Transcribe job done");
+                tracing::info!(elapsed_ms = start.elapsed().as_millis(), "Chunk job done");
 
-                with_app(|app| {
-                    app.model_state = ModelState::Ready;
-                    match result {
-                        Ok(text) => {
-                            if text.is_empty() {
-                                app.set_error("No speech detected".into());
-                                notify_error("No speech detected");
-                            } else {
-                                app.set_transcript(text.clone());
-                                ffi::on_transcript_ready(text);
-                            }
-                        }
-                        Err(e) => {
-                            let msg = format!("Inference failed: {}", e);
-                            tracing::error!("{}", msg);
-                            app.set_error(msg.clone());
-                            notify_error(&msg);
-                        }
+                match result {
+                    Ok(Some(new_text)) => {
+                        // Stitch with dedupe: strip any duplicated tail/head.
+                        let merged = dedupe_merge(last_tail.as_deref(), &new_text);
+                        session_text.push_str(&merged);
+                        last_tail = Some(last_words(&new_text, 3));
+                        CHUNK_FAILED.store(false, Ordering::SeqCst);
                     }
-                });
-                notify_state();
-                LAST_ACTIVITY.store(now_secs(), Ordering::SeqCst);
+                    Ok(None) => {
+                        // No new text this chunk (silence) — fine.
+                        CHUNK_FAILED.store(false, Ordering::SeqCst);
+                    }
+                    Err(e) => {
+                        tracing::error!(?e, "Chunk transcription failed");
+                        CHUNK_FAILED.store(true, Ordering::SeqCst);
+                    }
+                }
+
+                if is_final {
+                    let final_text = session_text.trim().to_string();
+                    tracing::info!(chars = final_text.len(), "Finalizing transcript");
+
+                    with_app(|app| {
+                        app.model_state = ModelState::Ready;
+                        if final_text.is_empty() {
+                            app.set_error("No speech detected".into());
+                            notify_error("No speech detected");
+                        } else {
+                            app.set_transcript(final_text.clone());
+                            ffi::on_transcript_ready(final_text);
+                        }
+                    });
+                    notify_state();
+                    LAST_ACTIVITY.store(now_secs(), Ordering::SeqCst);
+
+                    // Reset session state for the next dictation.
+                    session_text.clear();
+                    last_tail = None;
+                    CHUNKS_SENT.store(0, Ordering::SeqCst);
+                    CHUNK_FAILED.store(false, Ordering::SeqCst);
+                }
             }
             InferenceJob::Unload => {
                 tracing::info!("Unload job received — freeing model RAM");
@@ -305,6 +376,100 @@ fn inference_worker(rx: mpsc::Receiver<InferenceJob>) {
     }
 
     tracing::info!("Inference worker exiting");
+}
+
+/// Strips the duplicated tail of `prev` from the head of `next` (overlap dedupe).
+fn dedupe_merge(prev_tail: Option<&str>, next: &str) -> String {
+    let Some(tail) = prev_tail else {
+        return next.to_string();
+    };
+    let tail = tail.trim();
+    let next = next.trim();
+    if tail.is_empty() || next.is_empty() {
+        return next.to_string();
+    }
+
+    // If next starts with the previous tail, strip it.
+    if next.starts_with(tail) {
+        return next[tail.len()..].trim_start().to_string();
+    }
+
+    // Fuzzy: try progressively shorter prefixes of `tail`.
+    let words: Vec<&str> = tail.split_whitespace().collect();
+    for take in (1..words.len()).rev() {
+        let prefix = words[..take].join(" ");
+        if next.starts_with(&prefix) {
+            return next[prefix.len()..].trim_start().to_string();
+        }
+    }
+
+    // No overlap detected — keep both (duplication is safer than data loss).
+    next.to_string()
+}
+
+/// Returns the last `n` words of `text`.
+fn last_words(text: &str, n: usize) -> String {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let start = words.len().saturating_sub(n);
+    words[start..].join(" ")
+}
+
+/// Chunker thread — every `chunk_seconds` of new audio, copies the last
+/// `chunk_seconds + overlap` window from the recording buffer and sends it
+/// to the inference worker as a non-final chunk.
+fn chunker_thread(stop_rx: mpsc::Receiver<()>, chunk_seconds: u64, overlap_seconds: u64) {
+    if chunk_seconds == 0 {
+        tracing::info!("Chunker disabled (chunk_seconds = 0)");
+        return;
+    }
+
+    tracing::info!(chunk_seconds, overlap_seconds, "Chunker started");
+
+    let rate = SAMPLE_RATE.load(Ordering::SeqCst);
+    let window = (chunk_seconds + overlap_seconds) as usize * rate as usize;
+
+    loop {
+        // Wait for the stop signal OR the chunk interval — whichever comes first.
+        let chunk_duration = Duration::from_secs(chunk_seconds);
+        let stop_wait = stop_rx.recv_timeout(chunk_duration);
+        if stop_wait.is_ok() {
+            tracing::info!("Chunker stopped");
+            break;
+        }
+
+        // Chunk interval elapsed (recv_timeout returned Err(Timeout)).
+        let is_recording = with_app(|app| app.phase == SessionPhase::Recording);
+
+        if !is_recording {
+            // Not recording anymore — exit.
+            tracing::info!("Chunker exiting (not recording)");
+            break;
+        }
+
+        // Copy the last `window` samples from the live buffer (non-destructive).
+        let (chunk, buf_len) = with_audio(|audio_opt| {
+            audio_opt
+                .as_ref()
+                .map(|cap| cap.tail_samples_with_len(window))
+                .unwrap_or_default()
+        });
+
+        if chunk.is_empty() {
+            tracing::debug!("Chunker: empty window, skipping");
+            continue;
+        }
+
+        CHUNKS_SENT.fetch_add(1, Ordering::SeqCst);
+        // The final chunk must start after what this chunk covered.
+        LAST_CHUNK_END.store(buf_len.saturating_sub(window as u64), Ordering::SeqCst);
+        if let Some(tx) = INFERENCE_TX.get() {
+            let _ = tx.send(InferenceJob::TranscribeChunk {
+                samples: chunk,
+                is_final: false,
+            });
+            bump_activity();
+        }
+    }
 }
 
 /// Polls LAST_ACTIVITY; sends Unload when the model has been idle too long.
@@ -371,11 +536,34 @@ fn start_recording() -> bool {
         }
     }
 
+    // Fresh session for the inference worker (clear decode state + counters).
+    if let Some(tx) = INFERENCE_TX.get() {
+        let _ = tx.send(InferenceJob::ResetSession);
+    }
+    CHUNKS_SENT.store(0, Ordering::SeqCst);
+    CHUNK_FAILED.store(false, Ordering::SeqCst);
+
+    // Spawn the chunker for live transcription during this recording.
+    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    *CHUNKER_STOP_TX.lock().unwrap() = Some(stop_tx);
+    let (chunk_seconds, overlap_seconds) = with_app(|app| {
+        (
+            app.config.audio.chunk_seconds as u64,
+            app.config.audio.chunk_overlap_seconds as u64,
+        )
+    });
+    thread::spawn(move || chunker_thread(stop_rx, chunk_seconds, overlap_seconds));
+
     true
 }
 
 fn stop_recording() {
-    // 1. Capture audio on the calling (main) thread — thread_local AUDIO lives here
+    // 1. Stop the chunker first — no more mid-recording jobs after this point.
+    if let Some(stop_tx) = CHUNKER_STOP_TX.lock().unwrap().take() {
+        let _ = stop_tx.send(());
+    }
+
+    // 2. Capture audio on the calling (main) thread — thread_local AUDIO lives here
     let samples = with_audio(|audio_opt| {
         audio_opt.take().map(|a| a.stop()).unwrap_or_default()
     });
@@ -400,30 +588,37 @@ fn stop_recording() {
         return;
     }
 
-    // 2. Transition to Processing — Swift renders the Transcribing pill immediately
+    // 3. Transition to Processing — Swift renders the Transcribing pill immediately
     with_app(|app| {
         app.model_state = ModelState::Inference;
     });
     notify_state();
     bump_activity();
 
-    // 3. Model path + thread count resolved on main thread
-    let (model_path, n_threads) = {
-        let model_dir = with_app(|app| app.config.model.directory.clone());
-        let home = dirs::home_dir().unwrap_or_default();
-        let dir = model_dir.replacen("~/", &format!("{}/", home.display()), 1);
-        let filename = with_app(|app| app.config.model.filename.clone());
-        let threads = with_app(|app| app.config.inference.n_threads);
-        (std::path::PathBuf::from(dir).join(&filename), threads)
+    // 4. Decide the final job:
+    //    - Any chunk failed → reset decode state and re-transcribe the WHOLE
+    //      buffer (no data loss; state must not carry stale chunks).
+    //    - Chunks were sent → send only the tail AFTER the last chunk's end.
+    //    - No chunks (recording < chunk_seconds) → whole buffer, as before.
+    let chunks_sent = CHUNKS_SENT.load(Ordering::SeqCst);
+    let chunk_failed = CHUNK_FAILED.load(Ordering::SeqCst);
+
+    let (final_samples, need_reset) = if chunk_failed || chunks_sent == 0 {
+        tracing::info!(chunk_failed, chunks_sent, "Whole-buffer final (fallback)");
+        (samples, true)
+    } else {
+        let start_at = LAST_CHUNK_END.load(Ordering::SeqCst) as usize;
+        tracing::info!(chunks_sent, start_at, "Tail-only final chunk");
+        (samples[start_at.min(samples.len())..].to_vec(), false)
     };
 
-    // 4. Hand off to the dedicated inference thread — main thread stays free for UI.
-    //    Engine stays resident on that thread; watchdog unloads it after idle.
     if let Some(tx) = INFERENCE_TX.get() {
-        let _ = tx.send(InferenceJob::Transcribe {
-            samples,
-            model_path,
-            n_threads,
+        if need_reset {
+            let _ = tx.send(InferenceJob::ResetSession);
+        }
+        let _ = tx.send(InferenceJob::TranscribeChunk {
+            samples: final_samples,
+            is_final: true,
         });
     } else {
         tracing::error!("Inference worker not initialized");
