@@ -52,6 +52,8 @@ static SAMPLE_RATE: AtomicU64 = AtomicU64::new(16000);
 /// Model path + thread count for engine creation (resolved once at init).
 static MODEL_PATH: Mutex<Option<std::path::PathBuf>> = Mutex::new(None);
 static N_THREADS: AtomicU64 = AtomicU64::new(4);
+/// Live preview toggle (default from config `features.live_preview`).
+static LIVE_PREVIEW: AtomicBool = AtomicBool::new(false);
 
 fn with_app<F, R>(f: F) -> R
 where
@@ -95,6 +97,7 @@ mod ffi {
     extern "Swift" {
         fn on_state_changed(phase: AppPhase, model: ModelPhase);
         fn on_transcript_ready(text: String);
+        fn on_partial_transcript(text: String);
         fn on_error(message: String);
         fn on_download_progress(progress: f32, speed: String, remaining: String);
     }
@@ -117,6 +120,8 @@ mod ffi {
         fn get_download_speed() -> String;
         fn get_download_remaining() -> String;
         fn get_error_message() -> String;
+        fn get_live_preview_enabled() -> bool;
+        fn set_live_preview_enabled(enabled: bool);
     }
 }
 
@@ -198,6 +203,9 @@ fn initialize_core() -> bool {
 
         let rate = with_app(|app| app.config.audio.sample_rate);
         SAMPLE_RATE.store(rate as u64, Ordering::SeqCst);
+
+        let preview = with_app(|app| app.config.features.live_preview);
+        LIVE_PREVIEW.store(preview, Ordering::SeqCst);
     }
 
     // Dedicated inference thread — owns the Whisper engine for its lifetime.
@@ -329,6 +337,12 @@ fn inference_worker(rx: mpsc::Receiver<InferenceJob>) {
                         session_text.push_str(&merged);
                         last_tail = Some(last_words(&new_text, 3));
                         CHUNK_FAILED.store(false, Ordering::SeqCst);
+
+                        // Live preview: push the growing transcript to Swift
+                        // (only for non-final chunks; final goes via on_transcript_ready).
+                        if !is_final && LIVE_PREVIEW.load(Ordering::SeqCst) {
+                            ffi::on_partial_transcript(session_text.trim().to_string());
+                        }
                     }
                     Ok(None) => {
                         // No new text this chunk (silence) — fine.
@@ -446,13 +460,10 @@ fn chunker_thread(stop_rx: mpsc::Receiver<()>, chunk_seconds: u64, overlap_secon
             break;
         }
 
-        // Copy the last `window` samples from the live buffer (non-destructive).
-        let (chunk, buf_len) = with_audio(|audio_opt| {
-            audio_opt
-                .as_ref()
-                .map(|cap| cap.tail_samples_with_len(window))
-                .unwrap_or_default()
-        });
+        // Copy the last `window` samples from the ACTIVE buffer (non-destructive).
+        // The buffer Arc is registered globally at capture start — the chunker
+        // thread reads it directly, NOT via the main-thread thread_local.
+        let (chunk, buf_len) = audio::tail_active(window);
 
         if chunk.is_empty() {
             tracing::debug!("Chunker: empty window, skipping");
@@ -704,4 +715,13 @@ fn get_download_remaining() -> String {
 
 fn get_error_message() -> String {
     with_app(|app| app.error_message.clone().unwrap_or_default())
+}
+
+fn get_live_preview_enabled() -> bool {
+    LIVE_PREVIEW.load(Ordering::SeqCst)
+}
+
+fn set_live_preview_enabled(enabled: bool) {
+    LIVE_PREVIEW.store(enabled, Ordering::SeqCst);
+    tracing::info!(enabled, "Live preview toggled");
 }

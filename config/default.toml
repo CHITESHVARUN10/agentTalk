@@ -59,3 +59,6 @@ format = "json"
 vad_enabled = false
 # CoreML encoder offload — additional speed on Apple Silicon
 coreml_enabled = false
+# Live preview — show growing transcript text in the recording pill
+# while dictating (requires chunk_seconds > 0)
+live_preview = false

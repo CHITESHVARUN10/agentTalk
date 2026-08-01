@@ -100,6 +100,7 @@ Config lives in `config/default.toml` (overridable via `AGENTTALK_ENV`, env vars
 | `audio` | `chunk_overlap_seconds` | `2` (boundary overlap between chunks) |
 | `inference` | `language` | `en` |
 | `inference` | `n_threads` | `4` |
+| `features` | `live_preview` | `false` (show growing transcript in the recording pill; toggle from menu bar) |
 | `hotkey` | `key` / `modifiers` | `d` / `command+shift` |
 
 Model storage: `~/Library/Application Support/AgentTalk/models/`

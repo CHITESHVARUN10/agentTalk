@@ -10,6 +10,10 @@ struct AgentTalkApp: App {
                 AppModel.shared.toggleDictation()
             }
             Divider()
+            Button("Live Preview") {
+                AppModel.shared.toggleLivePreview()
+            }
+            Divider()
             Button("Quit") {
                 NSApplication.shared.terminate(nil)
             }

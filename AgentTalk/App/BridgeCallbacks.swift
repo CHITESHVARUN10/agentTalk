@@ -26,7 +26,15 @@ func on_transcript_ready(text: RustString) {
     let t = text.toString()
     DispatchQueue.main.async {
         AppModel.shared.transcript = t
+        AppModel.shared.partialTranscript = ""
         AppModel.shared.phase = .TranscriptReady
+    }
+}
+
+func on_partial_transcript(text: RustString) {
+    let t = text.toString()
+    DispatchQueue.main.async {
+        AppModel.shared.partialTranscript = t
     }
 }
 

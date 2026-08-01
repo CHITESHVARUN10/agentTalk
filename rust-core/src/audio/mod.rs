@@ -9,8 +9,42 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::Stream;
 use std::sync::{
     atomic::{AtomicU32, Ordering},
-    Arc, Mutex,
+    Arc, Mutex, OnceLock,
 };
+
+/// Global handle to the ACTIVE recording buffer (Arc is Send+Sync).
+/// Registered on capture start, cleared on stop. Lets the chunker thread
+/// (which is not the main thread) snapshot windows without touching the
+/// thread-local AudioCapture itself.
+static ACTIVE_BUFFER: OnceLock<Mutex<Option<Arc<Mutex<Vec<f32>>>>>> = OnceLock::new();
+
+fn active_buffer() -> &'static Mutex<Option<Arc<Mutex<Vec<f32>>>>> {
+    ACTIVE_BUFFER.get_or_init(|| Mutex::new(None))
+}
+
+/// Register the active buffer so other threads (chunker) can read windows.
+pub fn register_buffer(buffer: Arc<Mutex<Vec<f32>>>) {
+    *active_buffer().lock().unwrap() = Some(buffer);
+}
+
+/// Clear the active buffer registration.
+pub fn unregister_buffer() {
+    *active_buffer().lock().unwrap() = None;
+}
+
+/// Non-destructive snapshot of the last `n` samples of the active buffer.
+/// Returns (window, total_len). Empty when no recording is active.
+pub fn tail_active(n: usize) -> (Vec<f32>, u64) {
+    let guard = active_buffer().lock().unwrap();
+    match guard.as_ref() {
+        Some(buf) => {
+            let data = buf.lock().unwrap();
+            let start = data.len().saturating_sub(n);
+            (data[start..].to_vec(), data.len() as u64)
+        }
+        None => (Vec::new(), 0),
+    }
+}
 
 pub struct AudioCapture {
     stream: Stream,
@@ -69,6 +103,9 @@ impl AudioCapture {
         stream.play()?;
         tracing::info!(max_seconds, "Audio capture started");
 
+        // Make the buffer visible to other threads (chunker).
+        register_buffer(buffer.clone());
+
         Ok(Self {
             stream,
             buffer,
@@ -103,6 +140,7 @@ impl AudioCapture {
     }
 
     pub fn stop(self) -> Vec<f32> {
+        unregister_buffer();
         let samples = self.drain_samples();
         drop(self.stream);
         tracing::info!(samples = samples.len(), "Audio capture stopped");

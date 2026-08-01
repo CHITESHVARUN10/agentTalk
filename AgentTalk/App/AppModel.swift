@@ -10,12 +10,14 @@ final class AppModel {
     var phase: AppPhase = .Idle
     var modelPhase: ModelPhase = .NotInstalled
     var transcript: String = ""
+    var partialTranscript: String = ""
     var errorMessage: String = ""
     var downloadProgress: Float = 0.0
     var downloadSpeed: String = ""
     var downloadRemaining: String = ""
     var audioLevel: Float = 0.0
     var copied = false
+    var livePreviewEnabled: Bool = false
 
     private var panel: NSPanel?
     private var panelHost: NSHostingView<HUDContentView>?
@@ -30,6 +32,7 @@ final class AppModel {
         print("[AgentTalk] Core initialized: \(ok)")
         phase = get_app_phase()
         modelPhase = get_model_phase()
+        livePreviewEnabled = get_live_preview_enabled()
         print("[AgentTalk] Initial phase: \(phase), model: \(modelPhase)")
 
         Timer.scheduledTimer(withTimeInterval: 1.0/30.0, repeats: true) { [weak self] _ in
@@ -81,8 +84,15 @@ final class AppModel {
         if ok {
             recordingStartedAt = Date()
             copied = false
+            partialTranscript = ""
             showPanel()
         }
+    }
+
+    func toggleLivePreview() {
+        livePreviewEnabled.toggle()
+        set_live_preview_enabled(livePreviewEnabled)
+        print("[AgentTalk] Live preview: \(livePreviewEnabled)")
     }
 
     /// Called when the model finishes loading and phase becomes Ready.
@@ -239,8 +249,12 @@ struct HUDContentView: View {
         Group {
             switch model.phase {
             case .Recording:
-                RecordingPillView(audioLevel: model.audioLevel)
-                    .frame(width: 240, height: 44)
+                RecordingPillView(
+                    audioLevel: model.audioLevel,
+                    livePreview: model.partialTranscript,
+                    livePreviewEnabled: model.livePreviewEnabled
+                )
+                .frame(width: 240, height: 44)
 
             case .Processing:
                 TranscribingPillView()

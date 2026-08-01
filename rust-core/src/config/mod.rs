@@ -73,6 +73,7 @@ pub struct LoggingSection {
 pub struct FeaturesSection {
     pub vad_enabled: bool,
     pub coreml_enabled: bool,
+    pub live_preview: bool,
 }
 
 impl AppConfig {
@@ -147,6 +148,7 @@ impl AppConfig {
             features: FeaturesSection {
                 vad_enabled: false,
                 coreml_enabled: false,
+                live_preview: false,
             },
         }
     }

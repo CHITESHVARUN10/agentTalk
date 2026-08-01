@@ -18,6 +18,8 @@ import SwiftUI
 struct RecordingPillView: View {
     @State private var isVisible = false
     var audioLevel: Float = 0.2
+    var livePreview: String = ""
+    var livePreviewEnabled: Bool = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -27,9 +29,19 @@ struct RecordingPillView: View {
 
             Spacer(minLength: 2)
 
-            WaveformView(audioLevel: audioLevel)
-                .frame(height: 20)
-                .frame(maxWidth: 110)
+            if livePreviewEnabled && !livePreview.isEmpty {
+                // Live transcript preview — replaces the waveform slot
+                Text(livePreview)
+                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: 150, alignment: .leading)
+            } else {
+                WaveformView(audioLevel: audioLevel)
+                    .frame(height: 20)
+                    .frame(maxWidth: 110)
+            }
 
             Spacer(minLength: 2)
 
