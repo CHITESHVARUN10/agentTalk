@@ -56,11 +56,22 @@ The hotkey (Carbon) and the menu bar both call the same `toggleDictation()` entr
 4. On first launch: allow **microphone access** (one-time prompt; macOS remembers)
 5. The Whisper model (~1.5 GB) downloads automatically on first use
 
-> **Gatekeeper note (unsigned builds):** until the app is signed with a
-> Developer ID, macOS may block first launch. Right-click → **Open**, or run:
+> **Gatekeeper note (ad-hoc signed, not notarized):** the release DMG is
+> **ad-hoc signed** (internally consistent — `codesign --verify` passes) but
+> **not Developer-ID signed or notarized**, which requires a paid Apple
+> Developer account ($99/yr). macOS therefore shows *"Apple cannot verify
+> AgentTalk is free of malware"* on first launch. It's a one-time warning:
+> right-click the app → **Open** → Open, or run:
 > ```bash
 > xattr -dr com.apple.quarantine /Applications/AgentTalk.app
 > ```
+> After that it runs like any app. Building from source has no warning.
+>
+> **What it would take to remove the warning entirely:** enroll in the
+> [Apple Developer Program](https://developer.apple.com/programs/), then
+> run `./scripts/package.sh --sign` with a Developer ID Application
+> certificate (this also enables `--options runtime` + notarization with
+> `xcrun notarytool`). This is the only remaining distribution gap.
 
 ### From source
 
@@ -164,3 +175,33 @@ Model storage: `~/Library/Application Support/AgentTalk/models/`
 ## License
 
 [MIT](LICENSE)
+
+## How to run the app from source
+
+If you'd rather build and run AgentTalk yourself instead of downloading the DMG, here are the exact steps:
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/CHITESHVARUN10/agentTalk.git
+cd agentTalk
+
+# 2. Install prerequisites (Rust toolchain + xcodegen)
+brew install rust
+brew install xcodegen
+
+# 3. Build the app (compiles Rust core + Swift app)
+make bootstrap
+
+# 4. Copy the built app into your Applications folder
+cp -R build/Release/AgentTalk.app /Applications/
+
+# 5. Launch it for the first time
+open /Applications/AgentTalk.app
+```
+
+On first launch:
+
+- macOS asks for **microphone access** — allow it (one time, it remembers).
+- The Whisper model (~1.5 GB) **downloads automatically** — you'll see the progress in the HUD. After that, press **⌘⇧D** and start dictating.
+
+> Note: `make bootstrap` handles everything in one go (it installs prerequisites, generates the Xcode project, and builds). If you prefer to run each step separately: `make xcode` to generate the project, `make build` to compile.

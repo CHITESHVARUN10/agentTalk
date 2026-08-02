@@ -53,17 +53,28 @@ if [ ! -d "$APP_DIR" ]; then
 fi
 
 # ── Sign ───────────────────────────────────────────────────
+# Entitlements file (cleaned for release: no get-task-allow).
+ENTITLEMENTS="$ROOT/AgentTalk/AgentTalk.entitlements"
+if [ -f "$ENTITLEMENTS" ]; then
+    SIGN_FLAGS=(--entitlements "$ENTITLEMENTS")
+else
+    SIGN_FLAGS=()
+fi
+
 if [ "$SIGN" = true ]; then
     echo "==> Signing with Developer ID: $SIGN_IDENTITY"
     codesign --force --deep --options runtime --timestamp \
+        "${SIGN_FLAGS[@]}" \
         --sign "$SIGN_IDENTITY" "$APP_DIR"
 else
-    echo "==> Ad-hoc signing (local use; Gatekeeper will warn others)"
-    codesign --force --deep --sign - "$APP_DIR"
+    echo "==> Ad-hoc signing (internally consistent; Gatekeeper will still warn)"
+    codesign --force --deep "${SIGN_FLAGS[@]}" --sign - "$APP_DIR"
 fi
 
-# Verify signature
-codesign --verify --deep "$APP_DIR" || { echo "ERROR: codesign verify failed" >&2; exit 1; }
+# Verify signature + entitlements
+codesign --verify --deep --strict "$APP_DIR" \
+    || { echo "ERROR: codesign verify failed" >&2; exit 1; }
+echo "==> Signature verified: $(codesign -dv "$APP_DIR" 2>&1 | grep -E 'Signature=')"
 
 # ── DMG ────────────────────────────────────────────────────
 echo "==> Creating DMG..."
