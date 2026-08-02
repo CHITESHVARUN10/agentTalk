@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentTalk — Offline speech-to-text for macOS</title>
+<meta name="description" content="AgentTalk is a private, offline dictation app for macOS. Press ⌘⇧D, speak, and your words appear as text — nothing leaves your Mac.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+/* ── Tokens (semantic, not decorative) ───────────────────── */
+:root {
+  --bg: #0e0d0b;          /* ink */
+  --bg-soft: #161411;
+  --surface: #1c1915;
+  --line: #2a2620;
+  --paper: #ece7dd;       /* warm paper */
+  --paper-dim: #a39c8f;   /* muted text */
+  --paper-faint: #6f6a5f;
+  --accent: #c97b2d;      /* copper — the single accent */
+  --accent-soft: rgba(201, 123, 45, 0.14);
+  --radius: 10px;
+  --maxw: 1080px;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-body: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--paper);
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+img { max-width: 100%; display: block; }
+::selection { background: var(--accent); color: var(--bg); }
+
+.wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 28px; }
+
+/* ── Typography ──────────────────────────────────────────── */
+h1, h2, h3, .display {
+  font-family: var(--font-display);
+  font-weight: 500;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: clamp(2.6rem, 6vw, 4.4rem); font-weight: 500; }
+h2 { font-size: clamp(1.9rem, 3.5vw, 2.6rem); margin-bottom: 0.5rem; }
+h3 { font-size: 1.25rem; }
+.lede { font-size: clamp(1.1rem, 2vw, 1.35rem); color: var(--paper-dim); max-width: 34em; }
+.small { font-size: 0.85rem; color: var(--paper-faint); }
+.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.85em; }
+
+/* ── Buttons ─────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55em;
+  padding: 0.8em 1.5em;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.98rem;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: transform 0.12s ease, background 0.15s ease, box-shadow 0.15s ease;
+  will-change: transform;
+}
+.btn:active { transform: scale(0.97); }
+.btn-primary {
+  background: var(--accent);
+  color: var(--bg);
+  box-shadow: 0 2px 0 rgba(0,0,0,0.3), 0 10px 30px -10px rgba(201,123,45,0.5);
+}
+.btn-primary:hover { background: #d98a3d; }
+.btn-ghost {
+  background: transparent;
+  color: var(--paper);
+  border-color: var(--line);
+}
+.btn-ghost:hover { border-color: var(--paper-faint); background: var(--surface); }
+.btn-ghost .caret { transition: transform 0.15s ease; }
+.btn-ghost:hover .caret { transform: translateX(3px); }
+
+/* ── Nav ─────────────────────────────────────────────────── */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(12px);
+  background: rgba(14, 13, 11, 0.75);
+  border-bottom: 1px solid var(--line);
+}
+.nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 28px;
+  max-width: var(--maxw);
+  margin: 0 auto;
+}
+.wordmark { font-family: var(--font-display); font-size: 1.3rem; font-weight: 600; letter-spacing: -0.01em; }
+.wordmark .dot { color: var(--accent); }
+.nav-links { display: flex; align-items: center; gap: 24px; font-size: 0.92rem; color: var(--paper-dim); }
+.nav-links a:hover { color: var(--paper); }
+.nav-links .btn { padding: 0.5em 1.1em; font-size: 0.85rem; }
+
+/* ── Hero ────────────────────────────────────────────────── */
+.hero { padding: 9rem 0 5rem; position: relative; }
+.hero-grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 4rem; align-items: center; }
+.kicker {
+  display: inline-block;
+  font-size: 0.8rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 1.4rem;
+}
+.hero h1 .amp { font-style: italic; color: var(--paper-dim); }
+.hero .lede { margin: 1.5rem 0 2.2rem; }
+.hero-cta { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+.hero-note { margin-top: 1.6rem; font-size: 0.82rem; color: var(--paper-faint); }
+.hero-note code { background: var(--surface); padding: 2px 7px; border-radius: 5px; border: 1px solid var(--line); }
+
+/* ── The glass pill (CSS, mirrors the real app) ──────────── */
+.stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 380px;
+  position: relative;
+  background:
+    radial-gradient(ellipse 60% 50% at 70% 30%, rgba(201,123,45,0.07), transparent 70%),
+    radial-gradient(ellipse 50% 40% at 20% 80%, rgba(236,231,221,0.04), transparent 70%);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background-color: var(--bg-soft);
+}
+.pill {
+  position: relative;
+  width: 240px;
+  height: 44px;
+  border-radius: 22px;
+  background: rgba(60, 55, 48, 0.55);
+  backdrop-filter: blur(18px) saturate(1.2);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  gap: 12px;
+}
+.rec-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: #e0524a;
+  animation: pulse 1.6s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(224,82,74,0.5); }
+  50% { opacity: 0.75; box-shadow: 0 0 0 7px rgba(224,82,74,0); }
+}
+.waveform { display: flex; align-items: center; gap: 3px; flex: 1; justify-content: center; height: 24px; }
+.waveform i { width: 3px; background: rgba(236,231,221,0.85); border-radius: 2px; }
+.pill-time { font-size: 0.78rem; color: rgba(236,231,221,0.65); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+
+/* preview bubble */
+.bubble {
+  position: absolute;
+  bottom: 56px;
+  width: 320px;
+  background: rgba(50, 46, 40, 0.72);
+  backdrop-filter: blur(18px) saturate(1.2);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-size: 0.82rem;
+  color: rgba(236,231,221,0.9);
+  line-height: 1.45;
+  box-shadow: 0 18px 40px -12px rgba(0,0,0,0.6);
+  text-align: left;
+}
+.bubble .caret { display: inline-block; width: 6px; height: 14px; background: var(--accent); margin-left: 2px; vertical-align: text-bottom; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* ── Sections ────────────────────────────────────────────── */
+section { padding: 5.5rem 0; border-top: 1px solid var(--line); }
+.sec-head { max-width: 40em; margin-bottom: 3rem; }
+.sec-head .small { display: block; margin-top: 0.9rem; }
+
+/* How it works */
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2.5rem; counter-reset: step; }
+.step { position: relative; padding-top: 0.4rem; }
+.step::before {
+  counter-increment: step;
+  content: "0" counter(step);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  color: var(--accent);
+  display: block;
+  margin-bottom: 1rem;
+  letter-spacing: 0.05em;
+}
+.step h3 { margin-bottom: 0.6rem; }
+.step p { color: var(--paper-dim); font-size: 0.98rem; }
+.step .kbd {
+  display: inline-block;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  padding: 1px 8px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.82rem;
+  color: var(--paper);
+}
+
+/* Features — editorial list, not card grid */
+.features { display: flex; flex-direction: column; }
+.feature {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 2.5rem;
+  padding: 2.4rem 0;
+  border-top: 1px solid var(--line);
+}
+.feature:last-child { border-bottom: 1px solid var(--line); }
+.feature .num { font-family: var(--font-display); font-size: 0.95rem; color: var(--accent); }
+.feature h3 { font-size: 1.45rem; margin-bottom: 0.6rem; }
+.feature p { color: var(--paper-dim); max-width: 40em; }
+.feature .feat-extra { margin-top: 1rem; font-size: 0.85rem; color: var(--paper-faint); }
+
+/* Privacy */
+.privacy { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; align-items: start; }
+.privacy .panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 2rem;
+}
+.privacy .panel h3 { margin-bottom: 0.8rem; }
+.privacy ul { list-style: none; }
+.privacy li { padding: 0.7rem 0; border-bottom: 1px solid var(--line); color: var(--paper-dim); display: flex; gap: 0.8em; }
+.privacy li:last-child { border-bottom: none; }
+.privacy li b { color: var(--paper); font-weight: 600; }
+.privacy li .ok { color: var(--accent); font-weight: 700; flex-shrink: 0; }
+
+/* Download */
+.download-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5rem; align-items: start; }
+.dl-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 2.2rem;
+  position: relative;
+  overflow: hidden;
+}
+.dl-card .arch { font-family: var(--font-display); font-size: 1.5rem; margin-bottom: 0.4rem; }
+.dl-card .dl-meta { font-size: 0.8rem; color: var(--paper-faint); margin-bottom: 1.4rem; font-variant-numeric: tabular-nums; }
+.dl-card ul { list-style: none; margin: 1.2rem 0 1.8rem; }
+.dl-card li { color: var(--paper-dim); font-size: 0.92rem; padding: 0.35rem 0; padding-left: 1.4em; position: relative; }
+.dl-card li::before { content: "—"; position: absolute; left: 0; color: var(--accent); }
+.req { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: 0.9rem; color: var(--paper-dim); }
+.req b { color: var(--paper); }
+
+/* FAQ */
+.faq { max-width: 46em; }
+details {
+  border-bottom: 1px solid var(--line);
+  padding: 1.1rem 0;
+}
+details summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+details summary::-webkit-details-marker { display: none; }
+details summary::after {
+  content: "+";
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  color: var(--accent);
+  transition: transform 0.2s ease;
+}
+details[open] summary::after { transform: rotate(45deg); }
+details p { margin-top: 0.9rem; color: var(--paper-dim); max-width: 42em; }
+details code { background: var(--surface); border: 1px solid var(--line); padding: 1px 6px; border-radius: 4px; font-size: 0.85em; }
+
+/* Footer */
+footer { border-top: 1px solid var(--line); padding: 3rem 0 4rem; }
+.foot-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; color: var(--paper-faint); font-size: 0.85rem; }
+.foot-inner a:hover { color: var(--paper); }
+
+/* ── Responsive ──────────────────────────────────────────── */
+@media (max-width: 860px) {
+  .hero { padding: 4.5rem 0 3rem; }
+  .hero-grid, .privacy, .download-grid { grid-template-columns: 1fr; gap: 2rem; }
+  .features .feature { grid-template-columns: 1fr; gap: 1rem; }
+  .steps { grid-template-columns: 1fr; gap: 2rem; }
+  .nav-links { display: none; }
+  .bubble { width: 240px; }
+}
+
+/* Reveal on scroll — subtle, only a few elements */
+.reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.7s ease, transform 0.7s ease; }
+.reveal.in { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  html { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="#top" class="wordmark">AgentTalk<span class="dot">.</span></a>
+    <div class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#faq">FAQ</a>
+      <a href="#download" class="btn btn-primary">Download</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<header class="hero" id="top">
+  <div class="wrap hero-grid">
+    <div>
+      <span class="kicker">Offline dictation for macOS</span>
+      <h1>Press <em>⌘⇧D</em>. Speak. Your words become text — <span class="amp">and never leave your Mac.</span></h1>
+      <p class="lede">AgentTalk is a private, on-device speech-to-text app that lives in your menu bar. No cloud, no account, no recordings uploaded. Just your voice, transcribed by a Whisper model running on your own silicon.</p>
+      <div class="hero-cta">
+        <a href="#download" class="btn btn-primary">Download for macOS</a>
+        <a href="https://github.com/CHITESHVARUN10/agentTalk" class="btn btn-ghost">View on GitHub <span class="caret">→</span></a>
+      </div>
+      <p class="hero-note">Free &amp; open source (MIT) · macOS 14+ · Apple Silicon · ~1.5 GB model downloads on first use.</p>
+    </div>
+
+    <div class="stage" aria-hidden="true">
+      <div class="bubble">Good morning everyone, thank you for joining this session. Today we're here to talk about the new project timeline<span class="caret"></span></div>
+      <div class="pill">
+        <span class="rec-dot"></span>
+        <div class="waveform" id="wave"></div>
+        <span class="pill-time">00:07</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- How it works -->
+<section id="how">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="kicker">How it works</span>
+      <h2>Three steps. No settings to fiddle with.</h2>
+      <span class="small">The whole interaction is one key, twice.</span>
+    </div>
+    <div class="steps">
+      <div class="step reveal">
+        <h3>Press <span class="kbd">⌘⇧D</span></h3>
+        <p>The glass pill appears wherever you placed it — bottom-center by default, or anywhere you like. A live waveform shows your voice being captured.</p>
+      </div>
+      <div class="step reveal">
+        <h3>Speak</h3>
+        <p>While you talk, AgentTalk transcribes in 20-second chunks on-device. A live preview grows above the pill, so you see the words as they're recognized.</p>
+      </div>
+      <div class="step reveal">
+        <h3>Press <span class="kbd">⌘⇧D</span> again</h3>
+        <p>The transcript appears, ready to copy. One more press closes it and starts a fresh recording — no mouse required.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="kicker">What makes it different</span>
+      <h2>Built like a utility, not a dashboard.</h2>
+      <span class="small">No signup. No onboarding quiz. No "welcome to your workspace."</span>
+    </div>
+    <div class="features">
+      <div class="feature reveal">
+        <span class="num">01</span>
+        <div>
+          <h3>Offline, by design</h3>
+          <p>Speech is converted to text by a Whisper large-v3-turbo model running entirely on your machine — accelerated by Metal on Apple Silicon. There is no server to send audio to, because the app has no network features at all. Turn Wi-Fi off; it still works.</p>
+          <p class="feat-extra">The microphone permission prompt says it plainly: "Audio never leaves your device." That's a promise the architecture keeps.</p>
+        </div>
+      </div>
+      <div class="feature reveal">
+        <span class="num">02</span>
+        <div>
+          <h3>Words appear while you're still talking</h3>
+          <p>AgentTalk doesn't wait until you stop. It transcribes the audio stream in 20-second chunks with a 2-second overlap, stitching the results with text-level deduplication so nothing is lost or doubled at the boundaries — and the preview bubble shows the transcript growing in real time.</p>
+          <p class="feat-extra">If you stop early, the whole buffer falls back to a single clean pass. Short recording, long recording — no gaps either way.</p>
+        </div>
+      </div>
+      <div class="feature reveal">
+        <span class="num">03</span>
+        <div>
+          <h3>The pill lives where you want it</h3>
+          <p>By default the recording pill sits bottom-center. From the menu bar, pick "Custom position" and a dummy pill appears that you can drag anywhere on screen — no recording needed. Press the checkmark, and that spot becomes the pill's permanent home. Your placement is remembered across restarts.</p>
+          <p class="feat-extra">If the pill sits near the top of the screen, the transcript smartly appears below it instead of floating off-screen.</p>
+        </div>
+      </div>
+      <div class="feature reveal">
+        <span class="num">04</span>
+        <div>
+          <h3>Heavy when needed, light when idle</h3>
+          <p>The 1.5 GB model downloads once, automatically, with progress shown in the HUD. After six minutes of silence it unloads from memory — freeing roughly two gigabytes of RAM — and reloads transparently when you next press the hotkey. Recordings made during a reload queue up and process without losing a word.</p>
+        </div>
+      </div>
+      <div class="feature reveal">
+        <span class="num">05</span>
+        <div>
+          <h3>Launch at login — only if you ask</h3>
+          <p>A menu bar toggle registers the app with macOS Login Items. It's off by default; the moment you switch it on, AgentTalk is ready at your desk every morning. Turn it off the same way, or from System Settings.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Privacy -->
+<section id="privacy">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="kicker">Privacy</span>
+      <h2>No cloud. No account. No asterisk.</h2>
+      <span class="small">Most "on-device" products still phone home. This one has nothing to call.</span>
+    </div>
+    <div class="privacy">
+      <div class="panel reveal">
+        <h3>What AgentTalk does</h3>
+        <ul>
+          <li><span class="ok">✓</span><span><b>Transcribes locally</b> — audio is captured and decoded entirely on your Mac via Metal-accelerated Whisper.</span></li>
+          <li><span class="ok">✓</span><span><b>Keeps recordings ephemeral</b> — audio lives in memory for the recording, then is discarded.</span></li>
+          <li><span class="ok">✓</span><span><b>Works offline</b> — no Wi-Fi, no connection, no difference.</span></li>
+        </ul>
+      </div>
+      <div class="panel reveal">
+        <h3>What AgentTalk does not</h3>
+        <ul>
+          <li><span class="ok">✕</span><span><b>No accounts</b> — nothing to sign up for, nothing to log into.</span></li>
+          <li><span class="ok">✕</span><span><b>No telemetry</b> — no analytics SDK, no crash reporters, no phone-home.</span></li>
+          <li><span class="ok">✕</span><span><b>No cloud storage of your words</b> — transcripts exist on your clipboard and your screen, nowhere else.</span></li>
+        </ul>
+      </div>
+      <p class="small" style="grid-column: 1 / -1; margin-top: -1.2rem;">The only network activity in the entire app is the one-time model download from Hugging Face. Everything after that is local.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Download -->
+<section id="download">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="kicker">Download</span>
+      <h2>Get AgentTalk</h2>
+      <span class="small">macOS 14 or later. Pick the build for your chip.</span>
+    </div>
+    <div class="download-grid">
+      <div class="dl-card reveal">
+        <div class="arch">Apple Silicon</div>
+        <div class="dl-meta">AgentTalk-0.1.0-arm64.dmg · ~5 MB</div>
+        <a class="btn btn-primary dl-link" id="dl-arm64" href="https://github.com/CHITESHVARUN10/agentTalk/releases/download/v0.1.0/AgentTalk-0.1.0-arm64.dmg">Download DMG ↓</a>
+        <ul>
+          <li>M1, M2, M3, M4 and later</li>
+          <li>Metal-accelerated inference</li>
+          <li>Recommended</li>
+        </ul>
+      </div>
+      <div class="dl-card reveal">
+        <div class="arch">Intel</div>
+        <div class="dl-meta">AgentTalk-0.1.0-x86_64.dmg · ~5 MB</div>
+        <a class="btn btn-ghost dl-link" id="dl-x86" href="https://github.com/CHITESHVARUN10/agentTalk/releases/download/v0.1.0/AgentTalk-0.1.0-x86_64.dmg">Download DMG ↓</a>
+        <ul>
+          <li>Intel Macs (slower inference)</li>
+          <li>No Metal acceleration</li>
+          <li>Works, but Apple Silicon is the target</li>
+        </ul>
+      </div>
+    </div>
+    <p class="small dl-fallback-note" id="dl-fallback-note" style="margin-top:1.2rem; display:none;">The direct download isn't published yet — the button above now points to the Releases page, where the DMG will appear.</p>
+    <div class="req">
+      <p><b>First launch:</b> allow microphone access when prompted (one time, macOS remembers it). The ~1.5 GB Whisper model downloads automatically — progress appears in the HUD. After that, you're set.</p>
+      <p style="margin-top: 0.8rem;"><b>Gatekeeper note:</b> AgentTalk isn't Developer-ID signed (that costs a paid Apple account), so macOS may warn on first launch. Right-click the app → <b>Open</b>, or run <code style="background:var(--surface);border:1px solid var(--line);padding:1px 6px;border-radius:4px;">xattr -dr com.apple.quarantine /Applications/AgentTalk.app</code>. Do that once and it runs like any app.</p>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section id="faq">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="kicker">FAQ</span>
+      <h2>Honest answers</h2>
+    </div>
+    <div class="faq reveal">
+      <details>
+        <summary>Is it really offline? Like, no internet at all?</summary>
+        <p>Really. Audio is captured and transcribed by a Whisper model running on your Mac. The app contains no networking code for audio — the only network call in the whole program is the initial model download. With Wi-Fi off, dictation is unchanged.</p>
+      </details>
+      <details>
+        <summary>Why does it download a 1.5 GB model on first launch?</summary>
+        <p>The speech recognizer (Whisper large-v3-turbo) is a neural network that ships as a model file — not code. Bundling it would make the app download 1.5 GB for everyone. Instead, the app itself stays at ~5 MB, and the model is fetched once from Hugging Face, verified, and stored in <span class="mono">~/Library/Application Support/AgentTalk/models</span>. No account needed.</p>
+      </details>
+      <details>
+        <summary>Which languages does it support?</summary>
+        <p>English only, for now. The pipeline is configured for English dictation. Other languages need code changes (and would still work offline) — a future release.</p>
+      </details>
+      <details>
+        <summary>Why does macOS warn "unidentified developer" on first launch?</summary>
+        <p>Because the app isn't signed with a paid Apple Developer ID certificate ($99/year). The warning is one-time: right-click the app in Finder → Open → Open. After that, no more warnings. If you build from source, there's no warning at all.</p>
+      </details>
+      <details>
+        <summary>What happens to my audio and transcripts?</summary>
+        <p>Audio exists only in memory while you record and is discarded when the recording ends. Transcripts go to your clipboard (and the transcript window). AgentTalk doesn't store your dictation history anywhere.</p>
+      </details>
+      <details>
+        <summary>How do I uninstall?</summary>
+        <p>Quit the app, delete AgentTalk from /Applications, and optionally remove <span class="mono">~/Library/Application Support/AgentTalk</span> (which contains the downloaded model) and <span class="mono">~/Library/Preferences/com.agenttalk.app.plist</span>. That's everything — there's nothing else on your system.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="wrap foot-inner">
+    <span>AgentTalk v0.1.0 — MIT License</span>
+    <span>
+      <a href="https://github.com/CHITESHVARUN10/agentTalk">GitHub</a> &nbsp;·&nbsp;
+      <a href="https://github.com/CHITESHVARUN10/agentTalk/releases">Releases</a> &nbsp;·&nbsp;
+      <a href="#top">Back to top ↑</a>
+    </span>
+  </div>
+</footer>
+
+<script>
+// Waveform — deterministic pseudo-random bars, mirrors the app's live audio
+(function () {
+  var wave = document.getElementById('wave');
+  if (!wave) return;
+  var bars = 24;
+  var seed = 42;
+  function rand() { // mulberry32
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    var t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  }
+  for (var i = 0; i < bars; i++) {
+    var b = document.createElement('i');
+    b.style.height = (4 + rand() * 20) + 'px';
+    wave.appendChild(b);
+  }
+  // gentle live animation
+  var heights = Array.from(wave.children).map(function (el) { return parseFloat(el.style.height); });
+  setInterval(function () {
+    Array.from(wave.children).forEach(function (el, i) {
+      var target = heights[i];
+      var drift = Math.sin(Date.now() / 300 + i * 0.6) * 4;
+      el.style.height = Math.max(3, target + drift) + 'px';
+    });
+  }, 120);
+})();
+
+// Subtle reveal on scroll
+(function () {
+  var els = document.querySelectorAll('.reveal');
+  if (!('IntersectionObserver' in window)) { els.forEach(function (e) { e.classList.add('in'); }); return; }
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (en) {
+      if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); }
+    });
+  }, { threshold: 0.12 });
+  els.forEach(function (e) { io.observe(e); });
+})();
+
+// Download fallback — if a DMG asset isn't published yet, point the buttons
+// at the Releases page so users never hit a 404.
+(function () {
+  var links = document.querySelectorAll('.dl-link');
+  var note = document.getElementById('dl-fallback-note');
+  var releasesURL = 'https://github.com/CHITESHVARUN10/agentTalk/releases';
+
+  function fallback() {
+    links.forEach(function (a) {
+      a.href = releasesURL;
+      a.setAttribute('data-fallback', 'true');
+    });
+    if (note) note.style.display = 'block';
+  }
+
+  // Only probe the first (primary) asset; both share the same release.
+  var primary = document.getElementById('dl-arm64');
+  if (!primary) { return; }
+  fetch(primary.href, { method: 'HEAD', redirect: 'follow' })
+    .then(function (res) {
+      if (!res.ok && res.status !== 0) fallback();
+    })
+    .catch(function () { fallback(); });
+})();
+</script>
+</body>
+</html>
