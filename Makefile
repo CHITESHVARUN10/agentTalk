@@ -1,4 +1,4 @@
-.PHONY: help bootstrap build clean run setup-model xcode \
+.PHONY: help bootstrap build clean run setup-model xcode package \
         rust-build rust-test rust-lint rust-fmt rust-fix
 
 .DEFAULT_GOAL := help
@@ -21,6 +21,9 @@ run: ## Build and launch AgentTalk
 
 setup-model: ## Download and verify the whisper model
 	./scripts/setup-model.sh
+
+package: ## Build and package a distributable DMG
+	./scripts/package.sh
 
 xcode: ## Generate Xcode project from project.yml
 	xcodegen generate --spec project.yml

@@ -10,6 +10,10 @@ struct AgentTalkApp: App {
                 AppModel.shared.toggleDictation()
             }
             Divider()
+            Toggle("Launch at Login", isOn: Binding(
+                get: { AppModel.shared.launchesAtLogin },
+                set: { AppModel.shared.setLaunchAtLogin($0) }
+            ))
             Button("Live Preview") {
                 AppModel.shared.toggleLivePreview()
             }

@@ -1,11 +1,16 @@
 //! Layered configuration management.
 //!
 //! Loads configuration from multiple sources with precedence:
-//! 1. `config/default.toml` — shipped with the app
+//! 1. `config/default.toml` — shipped with the app (embedded as fallback so
+//!    the app works from anywhere — Finder, /Applications, other machines)
 //! 2. `config/{environment}.toml` — environment-specific overrides
 //! 3. Environment variables (`AGENTTALK_*`) — runtime overrides
 
 use serde::{Deserialize, Serialize};
+
+/// Embedded copy of `config/default.toml` — used when the file is not
+/// present on disk (packaged app launched from anywhere).
+const EMBEDDED_DEFAULT_TOML: &str = include_str!("../../../config/default.toml");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -80,12 +85,22 @@ impl AppConfig {
     pub fn load() -> anyhow::Result<Self> {
         let env = std::env::var("AGENTTALK_ENV").unwrap_or_else(|_| "development".into());
 
+        // Default config: prefer the on-disk file (dev), fall back to the
+        // embedded copy so the packaged app works from any launch location.
         let default_path = std::path::Path::new("config/default.toml");
         let env_filename = format!("config/{}.toml", env);
         let env_path = std::path::Path::new(&env_filename);
 
-        let builder = config::Config::builder()
-            .add_source(config::File::from(default_path).required(true));
+        let mut builder = config::Config::builder();
+        if default_path.exists() {
+            builder = builder.add_source(config::File::from(default_path));
+        } else {
+            tracing::info!("config/default.toml not found — using embedded default");
+            builder = builder.add_source(config::File::from_str(
+                EMBEDDED_DEFAULT_TOML,
+                config::FileFormat::Toml,
+            ));
+        }
 
         let builder = if env_path.exists() {
             builder.add_source(config::File::from(env_path).required(false))

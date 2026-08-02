@@ -41,3 +41,4 @@ models/*.gguf
 
 # Node
 node_modules/
+  dist/

@@ -1,6 +1,7 @@
 import SwiftUI
 import Observation
 import AppKit
+import ServiceManagement
 
 @MainActor
 @Observable
@@ -127,6 +128,27 @@ final class AppModel {
         livePreviewEnabled.toggle()
         set_live_preview_enabled(livePreviewEnabled)
         print("[AgentTalk] Live preview: \(livePreviewEnabled)")
+    }
+
+    // ── Launch at Login ──────────────────────────────────────
+
+    /// Whether the app is registered to launch at user login.
+    var launchesAtLogin: Bool {
+        SMAppService.mainApp.status == .enabled
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+                print("[AgentTalk] Registered to launch at login")
+            } else {
+                try SMAppService.mainApp.unregister()
+                print("[AgentTalk] Removed login item")
+            }
+        } catch {
+            print("[AgentTalk] SMAppService error: \(error.localizedDescription)")
+        }
     }
 
     // ── Pill position controls (menu bar) ────────────────────
@@ -360,9 +382,14 @@ final class AppModel {
 
         // Custom mode: honor the user's saved spot (set once per panel life),
         // never re-center on transitions — their placement wins.
+        // Clamp into the visible frame so a stale/off-screen saved spot
+        // (e.g. from a smaller screen) never loses the pill.
         if usesCustomPosition, let saved = customPillPosition, recordingAnchor == nil {
-            panel.setFrameOrigin(saved)
-            recordingAnchor = saved
+            var origin = saved
+            origin.x = min(max(origin.x, visible.minX), visible.maxX - panel.frame.width)
+            origin.y = min(max(origin.y, visible.minY), visible.maxY - panel.frame.height)
+            panel.setFrameOrigin(origin)
+            recordingAnchor = origin
             return
         }
 
@@ -376,9 +403,14 @@ final class AppModel {
 
         switch phase {
         case .TranscriptReady:
-            // Float above the anchor, horizontally aligned to it.
-            let y = (recordingAnchor?.y ?? visible.minY + 24) + panel.frame.height + 24
-            panel.setFrameOrigin(NSPoint(x: recordingAnchor?.x ?? 0, y: y))
+            // Float above the anchor, horizontally aligned to it — but never
+            // off-screen: if the pill is near the top, put the transcript
+            // BELOW the pill instead.
+            let anchor = recordingAnchor ?? NSPoint(x: visible.midX - panel.frame.width / 2, y: visible.minY + 24)
+            let aboveY = anchor.y + panel.frame.height + 24
+            let fitsAbove = aboveY + panel.frame.height <= visible.maxY
+            let y = fitsAbove ? aboveY : anchor.y - panel.frame.height - 24
+            panel.setFrameOrigin(NSPoint(x: anchor.x, y: max(y, visible.minY)))
         default:
             panel.setFrameOrigin(recordingAnchor ?? .zero)
         }
