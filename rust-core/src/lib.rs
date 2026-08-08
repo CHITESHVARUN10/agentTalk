@@ -29,10 +29,7 @@ static INITIALIZED: AtomicBool = AtomicBool::new(false);
 static LAST_ACTIVITY: AtomicU64 = AtomicU64::new(0);
 
 enum InferenceJob {
-    TranscribeChunk {
-        samples: Vec<f32>,
-        is_final: bool,
-    },
+    TranscribeChunk { samples: Vec<f32>, is_final: bool },
     ResetSession,
     Unload,
 }
@@ -151,9 +148,7 @@ fn model_to_ffi(state: ModelState) -> ffi::ModelPhase {
 }
 
 fn notify_state() {
-    let (phase, model) = with_app(|app| {
-        (phase_to_ffi(app.phase), model_to_ffi(app.model_state))
-    });
+    let (phase, model) = with_app(|app| (phase_to_ffi(app.phase), model_to_ffi(app.model_state)));
     ffi::on_state_changed(phase, model);
 }
 
@@ -253,17 +248,15 @@ fn initialize_core() -> bool {
             ffi::on_download_progress(progress, speed.to_string(), remaining.to_string());
         });
 
-        with_app(|app| {
-            match download_result {
-                Ok(()) => {
-                    app.model_state = ModelState::Ready;
-                    app.phase = SessionPhase::Ready;
-                }
-                Err(e) => {
-                    tracing::error!("Model download failed: {}", e);
-                    app.model_state = ModelState::Error;
-                    app.phase = SessionPhase::Error;
-                }
+        with_app(|app| match download_result {
+            Ok(()) => {
+                app.model_state = ModelState::Ready;
+                app.phase = SessionPhase::Ready;
+            }
+            Err(e) => {
+                tracing::error!("Model download failed: {}", e);
+                app.model_state = ModelState::Error;
+                app.phase = SessionPhase::Error;
             }
         });
         notify_state();
@@ -306,11 +299,7 @@ fn inference_worker(rx: mpsc::Receiver<InferenceJob>) {
             }
             InferenceJob::TranscribeChunk { samples, is_final } => {
                 let start = Instant::now();
-                tracing::info!(
-                    samples = samples.len(),
-                    is_final,
-                    "Chunk job received"
-                );
+                tracing::info!(samples = samples.len(), is_final, "Chunk job received");
 
                 let result = ENGINE.with(|cell| {
                     let mut cell = cell.borrow_mut();
@@ -334,8 +323,11 @@ fn inference_worker(rx: mpsc::Receiver<InferenceJob>) {
                     Ok(Some(new_text)) => {
                         // Stitch with dedupe: strip any duplicated tail/head.
                         let merged = dedupe_merge(last_tail.as_deref(), &new_text);
-                        session_text.push_str(&merged);
-                        last_tail = Some(last_words(&new_text, 3));
+                        tracing::debug!(tail = ?last_tail, next = %new_text, merged = %merged, "dedupe");
+                        stitch(&mut session_text, &merged);
+                        // Keep a longer tail (≈12 words ≈ 4s) so the 2s overlap
+                        // (≈6-9 words) is always fully covered by the dedupe.
+                        last_tail = Some(last_words(&new_text, 12));
                         CHUNK_FAILED.store(false, Ordering::SeqCst);
 
                         // Live preview: push the growing transcript to Swift
@@ -392,10 +384,82 @@ fn inference_worker(rx: mpsc::Receiver<InferenceJob>) {
     tracing::info!("Inference worker exiting");
 }
 
-/// Strips the duplicated tail of `prev` from the head of `next` (overlap dedupe).
+fn stitch(session: &mut String, addition: &str) {
+    if addition.is_empty() {
+        return;
+    }
+    let addition = addition.trim();
+    if addition.is_empty() {
+        return;
+    }
+    if !session.is_empty() && !session.ends_with(' ') && !session.ends_with('\n') {
+        session.push(' ');
+    }
+    session.push_str(addition);
+}
+
+fn norm_word(word: &str) -> String {
+    let lower = word.to_ascii_lowercase();
+    let trimmed = lower.trim_matches(|c: char| !c.is_alphanumeric());
+    trimmed.to_string()
+}
+
+fn is_stopword(norm: &str) -> bool {
+    matches!(
+        norm,
+        "the"
+            | "a"
+            | "an"
+            | "and"
+            | "or"
+            | "so"
+            | "but"
+            | "of"
+            | "to"
+            | "in"
+            | "on"
+            | "is"
+            | "it"
+            | "we"
+            | "you"
+            | "for"
+            | "as"
+            | "at"
+            | "be"
+            | "are"
+            | "was"
+            | "by"
+            | "with"
+            | "that"
+            | "this"
+            | "from"
+            | "have"
+            | "has"
+            | "had"
+            | "will"
+            | "would"
+            | "can"
+            | "do"
+            | "does"
+            | "did"
+            | "not"
+            | "no"
+            | "if"
+            | "then"
+            | "okay"
+            | "ok"
+    )
+}
+
+/// Strips any duplicated tail of `prev` from the head of `next` (overlap dedupe).
+///
+/// The overlap window is ~2s of audio (~6-9 words), but whisper may
+/// transcribe slightly more or fewer words of that overlap, and may insert
+/// a leading filler word. So we search for the previous tail ANYWHERE in the
+/// first few words of `next`, not just as an exact `starts_with` prefix.
 fn dedupe_merge(prev_tail: Option<&str>, next: &str) -> String {
     let Some(tail) = prev_tail else {
-        return next.to_string();
+        return next.trim().to_string();
     };
     let tail = tail.trim();
     let next = next.trim();
@@ -403,17 +467,83 @@ fn dedupe_merge(prev_tail: Option<&str>, next: &str) -> String {
         return next.to_string();
     }
 
-    // If next starts with the previous tail, strip it.
-    if next.starts_with(tail) {
-        return next[tail.len()..].trim_start().to_string();
+    let tail_words: Vec<&str> = tail.split_whitespace().collect();
+    let next_words: Vec<&str> = next.split_whitespace().collect();
+    if tail_words.is_empty() || next_words.is_empty() {
+        return next.to_string();
     }
 
-    // Fuzzy: try progressively shorter prefixes of `tail`.
-    let words: Vec<&str> = tail.split_whitespace().collect();
-    for take in (1..words.len()).rev() {
-        let prefix = words[..take].join(" ");
-        if next.starts_with(&prefix) {
-            return next[prefix.len()..].trim_start().to_string();
+    let tail_norm: Vec<String> = tail_words.iter().map(|w| norm_word(w)).collect();
+    let next_norm: Vec<String> = next_words.iter().map(|w| norm_word(w)).collect();
+
+    // Exact prefix (normalized) — the common case with punctuation/case tolerance.
+    // Check word-boundary: normalized tail words must equal the first N normalized next words.
+    let tail_norm_filtered: Vec<&str> =
+        tail_norm.iter().map(|s| s.as_str()).filter(|s| !s.is_empty()).collect();
+    let next_norm_filtered: Vec<&str> =
+        next_norm.iter().map(|s| s.as_str()).filter(|s| !s.is_empty()).collect();
+    if !tail_norm_filtered.is_empty()
+        && tail_norm_filtered.len() <= next_norm_filtered.len()
+        && next_norm_filtered[..tail_norm_filtered.len()] == tail_norm_filtered[..]
+    {
+        let skip = tail_words.len();
+        if skip >= next_words.len() {
+            return String::new();
+        }
+        return next_words[skip..].join(" ");
+    }
+
+    let head_limit = next_words.len().min(12);
+
+    // Search longest suffix of tail matching head of next at any small offset.
+    // Normalized comparison; output slicing uses original words.
+    for take in (1..=tail_words.len().min(12)).rev() {
+        // Policy: require meaningful overlap length
+        if take >= 3 {
+            // ok
+        } else if take == 2 {
+            let a = tail_norm[tail_norm.len() - 2].as_str();
+            let b = tail_norm[tail_norm.len() - 1].as_str();
+            if a.is_empty() || b.is_empty() || is_stopword(a) || is_stopword(b) {
+                continue;
+            }
+            if a.len() < 3 || b.len() < 3 {
+                continue;
+            }
+        } else {
+            // take == 1
+            let w = tail_norm[tail_norm.len() - 1].as_str();
+            if w.is_empty() || w.len() < 6 || is_stopword(w) {
+                continue;
+            }
+            // Single-word dedupe only at head start (offset 0 or 1 for filler)
+            // — handled via the start loop below (still offset-tolerant by 1).
+        }
+
+        let suffix_norm = &tail_norm[tail_norm.len() - take..];
+
+        for start in 0..head_limit {
+            if start + take > next_words.len() {
+                break;
+            }
+            // For single-word, only allow offset 0 or 1
+            if take == 1 && start > 1 {
+                continue;
+            }
+            // For all, cap offset to 3 filler words
+            if start > 3 {
+                continue;
+            }
+            let window_norm = &next_norm[start..start + take];
+            let matches = window_norm.iter().zip(suffix_norm.iter()).all(|(a, b)| {
+                if a.is_empty() || b.is_empty() {
+                    return false;
+                }
+                a == b
+            });
+            if matches {
+                return next_words[start + take..].join(" ");
+            }
         }
     }
 
@@ -426,6 +556,142 @@ fn last_words(text: &str, n: usize) -> String {
     let words: Vec<&str> = text.split_whitespace().collect();
     let start = words.len().saturating_sub(n);
     words[start..].join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dedupe_exact_prefix() {
+        let tail = "timeline and key";
+        let next = "timeline and key milestones we need to hit";
+        assert_eq!(dedupe_merge(Some(tail), next), "milestones we need to hit");
+    }
+
+    #[test]
+    fn dedupe_long_overlap_more_than_3_words() {
+        // Overlap is ~2s ≈ 6-9 words; the tail now keeps 12 words so the
+        // full overlap must be stripped, not just the last 3.
+        let tail = "the new project timeline and key milestones";
+        let next = "timeline and key milestones we need to hit by the end of the week";
+        assert_eq!(dedupe_merge(Some(tail), next), "we need to hit by the end of the week");
+    }
+
+    #[test]
+    fn dedupe_with_leading_filler() {
+        // whisper may re-segment and start the overlap with a filler word.
+        let tail = "we have six weeks to deliver";
+        let next = "so we have six weeks to deliver something tangible";
+        assert_eq!(dedupe_merge(Some(tail), next), "something tangible");
+    }
+
+    #[test]
+    fn dedupe_no_overlap_keeps_both() {
+        let tail = "completely different sentence";
+        let next = "something entirely new";
+        assert_eq!(dedupe_merge(Some(tail), next), "something entirely new");
+    }
+
+    #[test]
+    fn dedupe_filler_then_overlap_at_head() {
+        // Filler word, then the overlap appears at the very start.
+        let tail = "now we will discuss the action items";
+        let next = "okay now we will discuss the action items each member needs";
+        assert_eq!(dedupe_merge(Some(tail), next), "each member needs");
+    }
+
+    #[test]
+    fn dedupe_common_word_inside_head_not_false_positive() {
+        // "and" appears mid-head but NOT as a 3+ word overlap — must not cut.
+        let tail = "we need to deliver the prototype";
+        let next = "the design and engineering teams are aligned";
+        assert_eq!(dedupe_merge(Some(tail), next), "the design and engineering teams are aligned");
+    }
+
+    #[test]
+    fn last_words_keeps_n() {
+        assert_eq!(last_words("a b c d e", 3), "c d e");
+        assert_eq!(last_words("a b", 3), "a b");
+    }
+
+    // ── Paragraph reproduction (reported failures) ──
+
+    #[test]
+    fn dedupe_rushed_core_case_variant() {
+        let tail = "the rust core remains the";
+        let next = "The Rust core remains the rust code remain the same";
+        // Normalized case-insensitive exact-prefix dedupe should strip overlap
+        let merged = dedupe_merge(Some(tail), next);
+        assert_eq!(merged, "rust code remain the same");
+    }
+
+    #[test]
+    fn dedupe_windows_single_word_dupe() {
+        let tail = "into the windows";
+        let next = "windows and then with the help of";
+        assert_eq!(dedupe_merge(Some(tail), next), "and then with the help of");
+    }
+
+    #[test]
+    fn dedupe_punct_variant() {
+        let tail = "into the windows.";
+        let next = "windows and then we must be able";
+        assert_eq!(dedupe_merge(Some(tail), next), "and then we must be able");
+    }
+
+    #[test]
+    fn dedupe_of_of_single_stopword_not_deduped_via_merge() {
+        // "of" is a stopword and too short for single-word dedupe — keep both.
+        // The true "of of" dupe in the paragraph is better fixed by not
+        // duplicating the 2s window textually; but single "of" must not false-positive.
+        let tail = "with the help of";
+        let next = "of that you the people can download";
+        assert_eq!(dedupe_merge(Some(tail), next), "of that you the people can download");
+    }
+
+    #[test]
+    fn dedupe_cpu_hammer_duplication() {
+        let tail = "does not hammer the CPU";
+        let next = "does not hammer the cpu or gpu usage";
+        assert_eq!(dedupe_merge(Some(tail), next), "or gpu usage");
+    }
+
+    #[test]
+    fn stitch_inserts_space() {
+        let mut s = String::from("currently");
+        stitch(&mut s, "we have being like the UI should look");
+        assert_eq!(s, "currently we have being like the UI should look");
+        assert!(!s.contains("currentlywe"));
+    }
+
+    #[test]
+    fn stitch_paragraph_spacing_regression() {
+        let mut s = String::new();
+        stitch(&mut s, "the rust core remains the");
+        stitch(&mut s, "the rust code remain the same");
+        assert_eq!(s, "the rust core remains the the rust code remain the same");
+        assert!(!s.contains("corethe"));
+        let mut s2 = String::new();
+        stitch(&mut s2, "currently");
+        stitch(&mut s2, "we have being like the UI should look");
+        assert_eq!(s2, "currently we have being like the UI should look");
+        assert!(!s2.contains("currentlywe"));
+        let mut s3 = String::new();
+        stitch(&mut s3, "rushed core");
+        stitch(&mut s3, "the rust code remain");
+        assert_eq!(s3, "rushed core the rust code remain");
+        assert!(!s3.contains("corethe"));
+    }
+
+    #[test]
+    fn stitch_trim_and_empty() {
+        let mut s = String::from("hello");
+        stitch(&mut s, "   ");
+        assert_eq!(s, "hello");
+        stitch(&mut s, " world ");
+        assert_eq!(s, "hello world");
+    }
 }
 
 /// Chunker thread — every `chunk_seconds` of new audio, copies the last
@@ -477,10 +743,7 @@ fn chunker_thread(stop_rx: mpsc::Receiver<()>, chunk_seconds: u64, overlap_secon
         // audio and corrupt the persistent decode state → data loss.)
         LAST_CHUNK_END.store(buf_len, Ordering::SeqCst);
         if let Some(tx) = INFERENCE_TX.get() {
-            let _ = tx.send(InferenceJob::TranscribeChunk {
-                samples: chunk,
-                is_final: false,
-            });
+            let _ = tx.send(InferenceJob::TranscribeChunk { samples: chunk, is_final: false });
             bump_activity();
         }
     }
@@ -561,10 +824,7 @@ fn start_recording() -> bool {
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     *CHUNKER_STOP_TX.lock().unwrap() = Some(stop_tx);
     let (chunk_seconds, overlap_seconds) = with_app(|app| {
-        (
-            app.config.audio.chunk_seconds as u64,
-            app.config.audio.chunk_overlap_seconds as u64,
-        )
+        (app.config.audio.chunk_seconds as u64, app.config.audio.chunk_overlap_seconds as u64)
     });
     thread::spawn(move || chunker_thread(stop_rx, chunk_seconds, overlap_seconds));
 
@@ -578,17 +838,13 @@ fn stop_recording() {
     }
 
     // 2. Capture audio on the calling (main) thread — thread_local AUDIO lives here
-    let samples = with_audio(|audio_opt| {
-        audio_opt.take().map(|a| a.stop()).unwrap_or_default()
-    });
+    let samples = with_audio(|audio_opt| audio_opt.take().map(|a| a.stop()).unwrap_or_default());
 
-    let needs_inference = with_app(|app| {
-        match app.finish_recording() {
-            Ok(_) => !samples.is_empty(),
-            Err(e) => {
-                app.set_error(format!("Stop recording error: {}", e));
-                false
-            }
+    let needs_inference = with_app(|app| match app.finish_recording() {
+        Ok(_) => !samples.is_empty(),
+        Err(e) => {
+            app.set_error(format!("Stop recording error: {}", e));
+            false
         }
     });
 
@@ -621,8 +877,18 @@ fn stop_recording() {
         tracing::info!(chunk_failed, chunks_sent, "Whole-buffer final (fallback)");
         (samples, true)
     } else {
-        let start_at = LAST_CHUNK_END.load(Ordering::SeqCst) as usize;
-        tracing::info!(chunks_sent, start_at, "Tail-only final chunk");
+        let overlap_seconds = with_app(|app| app.config.audio.chunk_overlap_seconds as u64);
+        let overlap_samples =
+            (overlap_seconds as usize) * (SAMPLE_RATE.load(Ordering::SeqCst) as usize);
+        let raw_start = LAST_CHUNK_END.load(Ordering::SeqCst) as usize;
+        let start_at = raw_start.saturating_sub(overlap_samples);
+        tracing::info!(
+            chunks_sent,
+            raw_start,
+            start_at,
+            overlap_samples,
+            "Tail final with overlap"
+        );
         (samples[start_at.min(samples.len())..].to_vec(), false)
     };
 
@@ -630,10 +896,7 @@ fn stop_recording() {
         if need_reset {
             let _ = tx.send(InferenceJob::ResetSession);
         }
-        let _ = tx.send(InferenceJob::TranscribeChunk {
-            samples: final_samples,
-            is_final: true,
-        });
+        let _ = tx.send(InferenceJob::TranscribeChunk { samples: final_samples, is_final: true });
     } else {
         tracing::error!("Inference worker not initialized");
         with_app(|app| {

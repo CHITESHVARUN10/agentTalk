@@ -1,9 +1,6 @@
 //! Session state machine — the single source of truth for the dictation lifecycle.
 
-use crate::{
-    config::AppConfig,
-    model_manager::ModelState,
-};
+use crate::{config::AppConfig, model_manager::ModelState};
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

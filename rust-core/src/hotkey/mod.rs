@@ -21,10 +21,7 @@ pub struct HotkeyBridge {
 
 impl HotkeyBridge {
     pub fn new(on_press: HotkeyCallback, on_release: HotkeyCallback) -> Self {
-        Self {
-            on_press,
-            on_release,
-        }
+        Self { on_press, on_release }
     }
 
     pub fn handle_press(&self) {

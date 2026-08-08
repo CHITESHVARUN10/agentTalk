@@ -9,7 +9,6 @@
 ///
 /// Optimized for short dictation: English only, greedy sampling,
 /// no timestamps, no translation, no language detection.
-
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -32,12 +31,7 @@ pub enum InferenceState {
 
 impl InferenceEngine {
     pub fn new(model_path: PathBuf, n_threads: i32) -> Self {
-        Self {
-            model_path,
-            context: None,
-            state: InferenceState::NotLoaded,
-            n_threads,
-        }
+        Self { model_path, context: None, state: InferenceState::NotLoaded, n_threads }
     }
 
     pub fn load(&mut self) -> anyhow::Result<()> {
@@ -57,10 +51,7 @@ impl InferenceEngine {
 
         let ctx = whisper_rs::WhisperContext::new_with_params(
             self.model_path.to_str().unwrap(),
-            whisper_rs::WhisperContextParameters {
-                use_gpu: true,
-                ..Default::default()
-            },
+            whisper_rs::WhisperContextParameters { use_gpu: true, ..Default::default() },
         )?;
 
         let elapsed = start.elapsed();
@@ -123,13 +114,11 @@ impl InferenceEngine {
     ///
     /// Returns `Some(text)` with the full chunk text, or `None` if empty.
     pub fn transcribe_chunk(&mut self, samples: &[f32]) -> anyhow::Result<Option<String>> {
-        let ctx = self
-            .context
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Context not loaded"))?
-            .clone();
+        let ctx =
+            self.context.as_ref().ok_or_else(|| anyhow::anyhow!("Context not loaded"))?.clone();
 
-        let mut params = whisper_rs::FullParams::new(whisper_rs::SamplingStrategy::Greedy { best_of: 1 });
+        let mut params =
+            whisper_rs::FullParams::new(whisper_rs::SamplingStrategy::Greedy { best_of: 1 });
         params.set_n_threads(self.n_threads);
         params.set_language(Some("en"));
         params.set_no_timestamps(true);
@@ -177,13 +166,11 @@ impl InferenceEngine {
     }
 
     fn transcribe_core(&self, samples: &[f32]) -> anyhow::Result<String> {
-        let ctx = self
-            .context
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Context not loaded"))?;
+        let ctx = self.context.as_ref().ok_or_else(|| anyhow::anyhow!("Context not loaded"))?;
         let ctx = ctx.lock().unwrap();
 
-        let mut params = whisper_rs::FullParams::new(whisper_rs::SamplingStrategy::Greedy { best_of: 1 });
+        let mut params =
+            whisper_rs::FullParams::new(whisper_rs::SamplingStrategy::Greedy { best_of: 1 });
         params.set_n_threads(self.n_threads);
         params.set_language(Some("en"));
 

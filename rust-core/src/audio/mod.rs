@@ -56,9 +56,8 @@ impl AudioCapture {
     /// `max_seconds` — the recording ring-buffer cap (from config).
     pub fn start(max_seconds: u64) -> anyhow::Result<Self> {
         let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .ok_or_else(|| anyhow::anyhow!("No input device found"))?;
+        let device =
+            host.default_input_device().ok_or_else(|| anyhow::anyhow!("No input device found"))?;
 
         let device_name = device.name()?;
         tracing::info!(device = %device_name, "Opening audio input");
@@ -106,11 +105,7 @@ impl AudioCapture {
         // Make the buffer visible to other threads (chunker).
         register_buffer(buffer.clone());
 
-        Ok(Self {
-            stream,
-            buffer,
-            level,
-        })
+        Ok(Self { stream, buffer, level })
     }
 
     pub fn drain_samples(&self) -> Vec<f32> {

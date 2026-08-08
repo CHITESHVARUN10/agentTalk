@@ -5,7 +5,6 @@
 /// 2. Downloads `ggml-large-v3-turbo.bin` from Hugging Face (~1.5 GB) with resume support
 /// 3. Verifies SHA256 checksum after download
 /// 4. Reports progress to the UI layer
-
 use std::{
     fs,
     io::{Read, Write},
@@ -21,8 +20,7 @@ const EXPECTED_TURBO_SHA256: &str =
     "e3e9f2b9c1d4a7b8f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3";
 
 /// Hugging Face base URL for ggml models
-const DOWNLOAD_BASE_URL: &str =
-    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
+const DOWNLOAD_BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
 
 /// Minimum interval between progress callbacks (in milliseconds)
 const PROGRESS_INTERVAL_MS: u64 = 200;
@@ -154,9 +152,7 @@ impl ModelManager {
             if size > 0 {
                 tracing::info!(resume_from = size, "Resuming download");
                 existing_size = size;
-                fs::OpenOptions::new()
-                    .append(true)
-                    .open(&self.model_path)?
+                fs::OpenOptions::new().append(true).open(&self.model_path)?
             } else {
                 fs::File::create(&self.model_path)?
             }
@@ -207,11 +203,8 @@ impl ModelManager {
                     0.0
                 };
 
-                let progress = if total_size > 0 {
-                    downloaded as f32 / total_size as f32
-                } else {
-                    0.0
-                };
+                let progress =
+                    if total_size > 0 { downloaded as f32 / total_size as f32 } else { 0.0 };
 
                 let speed_str = format_speed(speed_bps);
                 let remaining_str = if speed_bps > 0.0 && total_size > 0 {

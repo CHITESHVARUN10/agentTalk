@@ -111,9 +111,7 @@ impl AppConfig {
 
         let cfg: AppConfig = builder
             .add_source(
-                config::Environment::with_prefix("AGENTTALK")
-                    .separator("__")
-                    .ignore_empty(true),
+                config::Environment::with_prefix("AGENTTALK").separator("__").ignore_empty(true),
             )
             .build()?
             .try_deserialize()?;
@@ -124,10 +122,7 @@ impl AppConfig {
 
     pub fn default() -> Self {
         Self {
-            app: AppSection {
-                name: "AgentTalk".into(),
-                version: "0.1.0".into(),
-            },
+            app: AppSection { name: "AgentTalk".into(), version: "0.1.0".into() },
             model: ModelSection {
                 directory: "~/Library/Application Support/AgentTalk/models".into(),
                 filename: "ggml-large-v3-turbo.bin".into(),
@@ -151,10 +146,7 @@ impl AppConfig {
                 modifiers: vec!["command".into(), "shift".into()],
                 key: "d".into(),
             },
-            paste: PasteSection {
-                auto_paste: false,
-                restore_clipboard: true,
-            },
+            paste: PasteSection { auto_paste: false, restore_clipboard: true },
             logging: LoggingSection {
                 level: "info".into(),
                 file: "~/Library/Application Support/AgentTalk/logs/agenttalk.log".into(),

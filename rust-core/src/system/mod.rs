@@ -18,9 +18,7 @@ pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
     let mut clipboard = arboard::Clipboard::new()
         .map_err(|e| anyhow::anyhow!("Failed to access clipboard: {}", e))?;
 
-    clipboard
-        .set_text(text)
-        .map_err(|e| anyhow::anyhow!("Failed to set clipboard text: {}", e))?;
+    clipboard.set_text(text).map_err(|e| anyhow::anyhow!("Failed to set clipboard text: {}", e))?;
 
     tracing::info!(chars = text.len(), "Copied to clipboard");
     Ok(())
@@ -43,10 +41,7 @@ pub fn get_clipboard() -> anyhow::Result<Option<String>> {
 pub fn copy_with_backup(text: &str) -> anyhow::Result<Option<String>> {
     let previous = get_clipboard().unwrap_or(None);
     copy_to_clipboard(text)?;
-    tracing::info!(
-        saved = previous.as_ref().map_or(0, |s| s.len()),
-        "Clipboard saved and updated"
-    );
+    tracing::info!(saved = previous.as_ref().map_or(0, |s| s.len()), "Clipboard saved and updated");
     Ok(previous)
 }
 
@@ -106,9 +101,7 @@ pub fn check_accessibility_permission() -> anyhow::Result<()> {
 /// so the user can grant permission.
 pub fn open_accessibility_settings() -> std::io::Result<()> {
     std::process::Command::new("open")
-        .args([
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-        ])
+        .args(["x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"])
         .spawn()?;
     Ok(())
 }
@@ -116,9 +109,7 @@ pub fn open_accessibility_settings() -> std::io::Result<()> {
 /// Open System Settings → Privacy & Security → Microphone
 pub fn open_microphone_settings() -> std::io::Result<()> {
     std::process::Command::new("open")
-        .args([
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
-        ])
+        .args(["x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"])
         .spawn()?;
     Ok(())
 }
