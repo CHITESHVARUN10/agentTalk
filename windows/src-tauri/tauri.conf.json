@@ -1,0 +1,47 @@
+{
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../src"
+  },
+  "bundle": {
+    "active": true,
+    "category": "Utility",
+    "identifier": "com.agenttalk.app",
+    "targets": ["nsis", "msi"],
+    "icon": ["icons/icon.ico"],
+    "resources": [],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "nsis": {
+        "displayLanguageSelector": false
+      }
+    }
+  },
+  "productName": "AgentTalk",
+  "version": "0.1.0",
+  "identifier": "com.agenttalk.app",
+  "plugins": {},
+  "app": {
+    "windows": [
+      {
+        "label": "hud",
+        "title": "AgentTalk",
+        "url": "index.html",
+        "width": 400,
+        "height": 170,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "resizable": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  }
+}

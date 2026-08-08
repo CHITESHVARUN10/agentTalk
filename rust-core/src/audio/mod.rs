@@ -79,25 +79,71 @@ impl AudioCapture {
             tracing::error!(?err, "Audio stream error");
         };
 
-        let stream = device.build_input_stream(
+        let stream = match device.build_input_stream(
             &config,
-            move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                let mut buf = buf_clone.lock().unwrap();
-                if buf.len() + data.len() > max_samples {
-                    let excess = (buf.len() + data.len()) - max_samples;
-                    if excess < buf.len() {
-                        buf.drain(..excess);
+            {
+                let buf_clone = buf_clone.clone();
+                let lvl_clone = lvl_clone.clone();
+                move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                    let mut buf = buf_clone.lock().unwrap();
+                    if buf.len() + data.len() > max_samples {
+                        let excess = (buf.len() + data.len()) - max_samples;
+                        if excess < buf.len() {
+                            buf.drain(..excess);
+                        }
                     }
-                }
-                buf.extend_from_slice(data);
+                    buf.extend_from_slice(data);
 
-                let sum: f32 = data.iter().map(|s| s * s).sum();
-                let rms = (sum / data.len() as f32).sqrt();
-                lvl_clone.store(rms.to_bits(), Ordering::Relaxed);
+                    let sum: f32 = data.iter().map(|s| s * s).sum();
+                    let rms = (sum / data.len() as f32).sqrt();
+                    lvl_clone.store(rms.to_bits(), Ordering::Relaxed);
+                }
             },
             err_fn,
             None,
-        )?;
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                // WASAPI on Windows may reject exact 16kHz mono; try fallback
+                // by enumerating supported configs and picking the closest.
+                tracing::warn!(error = %e, "Exact 16kHz mono rejected, trying fallback");
+                let fallback_config = device
+                    .supported_input_configs()
+                    .map_err(|fe| anyhow::anyhow!("No supported input configs: {fe}"))?
+                    .max_by_key(|c| {
+                        let sr = c.min_sample_rate().0 as i32 - 16000i32;
+                        let ch = c.channels() as i32 - 1;
+                        // Prefer 16kHz mono, then closest sample rate, then fewest channels
+                        -(sr.abs() * 100 + ch.abs() * 10 + c.channels() as i32)
+                    })
+                    .ok_or_else(|| anyhow::anyhow!("No supported input configs"))?
+                    .with_max_sample_rate()
+                    .config();
+                tracing::info!(config = ?fallback_config, "Using fallback audio config (resampling to 16kHz mono needed if not exact)");
+                // For v1, still open with the fallback config directly; whisper
+                // will resample downstream if needed. If even this fails, propagate.
+                let buf_clone2 = buffer.clone();
+                let lvl_clone2 = level.clone();
+                device.build_input_stream(
+                    &fallback_config,
+                    move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                        let mut buf = buf_clone2.lock().unwrap();
+                        if buf.len() + data.len() > max_samples {
+                            let excess = (buf.len() + data.len()) - max_samples;
+                            if excess < buf.len() {
+                                buf.drain(..excess);
+                            }
+                        }
+                        buf.extend_from_slice(data);
+                        let sum: f32 = data.iter().map(|s| s * s).sum();
+                        let rms = (sum / data.len() as f32).sqrt();
+                        lvl_clone2.store(rms.to_bits(), Ordering::Relaxed);
+                    },
+                    |err| tracing::error!(?err, "Audio stream error (fallback)"),
+                    None,
+                )?
+            }
+        };
 
         stream.play()?;
         tracing::info!(max_seconds, "Audio capture started");

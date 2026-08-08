@@ -120,11 +120,25 @@ impl AppConfig {
         Ok(cfg)
     }
 
+    fn default_model_dir() -> String {
+        if let Some(dir) = dirs::data_dir() {
+            return dir.join("AgentTalk").join("models").to_string_lossy().to_string();
+        }
+        "~/Library/Application Support/AgentTalk/models".into()
+    }
+
+    fn default_log_file() -> String {
+        if let Some(dir) = dirs::data_dir() {
+            return dir.join("AgentTalk").join("logs").join("agenttalk.log").to_string_lossy().to_string();
+        }
+        "~/Library/Application Support/AgentTalk/logs/agenttalk.log".into()
+    }
+
     pub fn default() -> Self {
         Self {
             app: AppSection { name: "AgentTalk".into(), version: "0.1.0".into() },
             model: ModelSection {
-                directory: "~/Library/Application Support/AgentTalk/models".into(),
+                directory: Self::default_model_dir(),
                 filename: "ggml-large-v3-turbo.bin".into(),
                 auto_download: true,
                 idle_unload_seconds: 360,
@@ -149,7 +163,7 @@ impl AppConfig {
             paste: PasteSection { auto_paste: false, restore_clipboard: true },
             logging: LoggingSection {
                 level: "info".into(),
-                file: "~/Library/Application Support/AgentTalk/logs/agenttalk.log".into(),
+                file: Self::default_log_file(),
                 format: "pretty".into(),
             },
             features: FeaturesSection {

@@ -122,6 +122,108 @@ mod ffi {
     }
 }
 
+pub mod ffi_win {
+    use super::*;
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_verify_bridge() -> *mut std::os::raw::c_char {
+        let s = std::ffi::CString::new("bridge ok").unwrap();
+        s.into_raw()
+    }
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_initialize_core() -> bool {
+        initialize_core()
+    }
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_is_initialized() -> bool {
+        is_initialized()
+    }
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_start_recording() -> bool {
+        start_recording()
+    }
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_stop_recording() {
+        stop_recording()
+    }
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_dismiss_transcript() {
+        dismiss_transcript()
+    }
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_retry_recording() {
+        retry_recording()
+    }
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_get_audio_level() -> f32 {
+        get_audio_level()
+    }
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_copy_to_clipboard() {
+        copy_to_clipboard()
+    }
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_paste_into_frontmost_app() {
+        paste_into_frontmost_app()
+    }
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_set_live_preview_enabled(enabled: bool) {
+        set_live_preview_enabled(enabled)
+    }
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_get_live_preview_enabled() -> bool {
+        get_live_preview_enabled()
+    }
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_get_transcript() -> *mut std::os::raw::c_char {
+        let s = get_transcript();
+        std::ffi::CString::new(s).unwrap().into_raw()
+    }
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_get_error_message() -> *mut std::os::raw::c_char {
+        let s = get_error_message();
+        std::ffi::CString::new(s).unwrap().into_raw()
+    }
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_get_app_phase() -> u8 {
+        with_app(|app| app.phase as u8)
+    }
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_get_model_phase() -> u8 {
+        with_app(|app| app.model_state as u8)
+    }
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_get_download_progress() -> f32 {
+        get_download_progress()
+    }
+
+    #[no_mangle]
+    pub extern "C" fn agenttalk_free_string(ptr: *mut std::os::raw::c_char) {
+        if ptr.is_null() {
+            return;
+        }
+        unsafe {
+            let _ = std::ffi::CString::from_raw(ptr);
+        }
+    }
+}
+
 fn phase_to_ffi(phase: SessionPhase) -> ffi::AppPhase {
     match phase {
         SessionPhase::Idle => ffi::AppPhase::Idle,
@@ -187,10 +289,9 @@ fn initialize_core() -> bool {
     // Resolve model path + engine params once for the inference worker.
     {
         let model_dir = with_app(|app| app.config.model.directory.clone());
-        let home = dirs::home_dir().unwrap_or_default();
-        let dir = model_dir.replacen("~/", &format!("{}/", home.display()), 1);
+        let dir = resolve_model_dir(&model_dir);
         let filename = with_app(|app| app.config.model.filename.clone());
-        let path = std::path::PathBuf::from(dir).join(&filename);
+        let path = std::path::PathBuf::from(&dir).join(&filename);
         *MODEL_PATH.lock().unwrap() = Some(path);
 
         let threads = with_app(|app| app.config.inference.n_threads);
@@ -330,7 +431,7 @@ fn inference_worker(rx: mpsc::Receiver<InferenceJob>) {
                         last_tail = Some(last_words(&new_text, 12));
                         CHUNK_FAILED.store(false, Ordering::SeqCst);
 
-                        // Live preview: push the growing transcript to Swift
+                        // Live preview: push the growing transcript to UI
                         // (only for non-final chunks; final goes via on_transcript_ready).
                         if !is_final && LIVE_PREVIEW.load(Ordering::SeqCst) {
                             ffi::on_partial_transcript(session_text.trim().to_string());
@@ -965,6 +1066,23 @@ fn get_app_phase() -> ffi::AppPhase {
 
 fn get_model_phase() -> ffi::ModelPhase {
     with_app(|app| model_to_ffi(app.model_state))
+}
+
+fn resolve_model_dir(raw: &str) -> String {
+    if raw.starts_with("~/") {
+        if let Some(data_dir) = dirs::data_dir() {
+            let suffix = &raw[2..];
+            // If the suffix is Library/Application Support/..., strip it and use data_dir directly
+            if suffix.starts_with("Library/Application Support/") {
+                let rest = &suffix["Library/Application Support/".len()..];
+                return data_dir.join(rest).to_string_lossy().to_string();
+            }
+            if let Some(home) = dirs::home_dir() {
+                return raw.replacen("~/", &format!("{}/", home.display()), 1);
+            }
+        }
+    }
+    raw.to_string()
 }
 
 fn get_download_progress() -> f32 {

@@ -39,6 +39,10 @@ models/*.gguf
 *.env.local
 *.log
 
+# Windows / Tauri
+windows/src-tauri/target/
+windows/src-tauri/Cargo.lock
+
 # Node
 node_modules/
 dist/

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AgentTalk</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="pill" class="pill hidden" data-state="idle">
+    <div class="pill-inner">
+      <span class="dot"></span>
+      <span class="label">Recording</span>
+      <canvas id="wave" width="110" height="20"></canvas>
+      <span class="hint">Press Ctrl+Shift+D to stop</span>
+    </div>
+  </div>
+  <div id="transcribing" class="pill transcribing hidden">
+    <span class="spinner"></span>
+    <span>Transcribing</span>
+  </div>
+  <div id="transcript" class="card hidden">
+    <div id="transcript-text" class="transcript-text"></div>
+    <div class="actions">
+      <button id="btn-copy">Copy</button>
+      <button id="btn-close">Close</button>
+    </div>
+  </div>
+  <div id="error" class="card error hidden">
+    <div id="error-text"></div>
+    <div class="actions">
+      <button id="btn-retry">Retry</button>
+      <button id="btn-dismiss">Dismiss</button>
+    </div>
+  </div>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

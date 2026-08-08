@@ -49,9 +49,10 @@ impl InferenceEngine {
             anyhow::bail!("Model file not found: {}", self.model_path.display());
         }
 
+        let use_gpu = cfg!(feature = "metal") || cfg!(feature = "vulkan") || cfg!(feature = "cuda");
         let ctx = whisper_rs::WhisperContext::new_with_params(
-            self.model_path.to_str().unwrap(),
-            whisper_rs::WhisperContextParameters { use_gpu: true, ..Default::default() },
+            &self.model_path.to_string_lossy(),
+            whisper_rs::WhisperContextParameters { use_gpu, ..Default::default() },
         )?;
 
         let elapsed = start.elapsed();

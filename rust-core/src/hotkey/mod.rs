@@ -1,18 +1,12 @@
-//! Global hotkey via CGEventTap.
-//!
-//! The CGEventTap is registered on the Swift side (more natural for macOS apps).
-//! This module provides the Rust-side callbacks that the tap invokes.
-
 use std::sync::Arc;
-
-/// Callback type for hotkey press/release
-pub type HotkeyCallback = Arc<dyn Fn(HotkeyAction) + Send + Sync>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HotkeyAction {
     Pressed,
     Released,
 }
+
+pub type HotkeyCallback = Arc<dyn Fn(HotkeyAction) + Send + Sync>;
 
 pub struct HotkeyBridge {
     on_press: HotkeyCallback,
@@ -34,3 +28,12 @@ impl HotkeyBridge {
         (self.on_release)(HotkeyAction::Released);
     }
 }
+
+#[cfg(target_os = "macos")]
+pub mod macos;
+
+#[cfg(target_os = "windows")]
+pub mod windows;
+
+/// Re-export for convenience
+pub use HotkeyBridge as Hotkey;

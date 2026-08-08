@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-macos:
     name: Build DMG (${{ matrix.arch }})
     runs-on: ${{ matrix.runs-on }}
     strategy:
@@ -50,5 +50,57 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.dmg
+          draft: false
+          generate_release_notes: true
+
+  build-windows:
+    name: Build Windows installer (x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust-core/target
+            windows/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-core/Cargo.lock', 'windows/src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install Tauri prerequisites
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          cargo install tauri-cli --locked || true
+
+      - name: Build Rust core (Vulkan)
+        run: cargo build --release --features vulkan
+        working-directory: rust-core
+
+      - name: Build Tauri app
+        run: cargo tauri build
+        working-directory: windows/src-tauri
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Package Inno Setup installer
+        shell: pwsh
+        run: |
+          $iscc = Get-ChildItem "C:\Program Files*\Inno Setup*\ISCC.exe" | Select-Object -First 1
+          & $iscc.FullName windows/installer/installer.iss
+
+      - name: Upload installer to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*-x64-setup.exe
           draft: false
           generate_release_notes: true
